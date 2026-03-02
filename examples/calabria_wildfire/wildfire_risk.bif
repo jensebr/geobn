@@ -1,0 +1,123 @@
+// Mediterranean Wildfire Risk Bayesian Network
+// Designed for geobn — Calabria, Italy example
+//
+// Evidence nodes (continuous rasters):
+//   slope       — terrain slope in degrees, derived from Copernicus DEM GLO-90
+//   elevation   — terrain elevation in metres, from Copernicus DEM GLO-90
+//   temperature — daily mean air temperature (°C), from Open-Meteo archive
+//   wind_speed  — daily max wind speed (km/h), from Open-Meteo archive
+//
+// Intermediate nodes:
+//   terrain_flammability — combined terrain-based fire susceptibility
+//   fire_weather         — combined weather-based fire danger index
+//
+// Output:
+//   wildfire_risk — posterior probability of wildfire occurrence
+//
+// Breakpoints used in run_example.py:
+//   slope       : [0, 15, 35, 90]      → flat / moderate / steep
+//   elevation   : [0, 300, 900, 4000]  → lowland / montane / alpine
+//   temperature : [0, 20, 30, 55]      → cool / warm / hot
+//   wind_speed  : [0, 20, 40, 150]     → calm / moderate / strong
+
+network wildfire_risk {}
+
+variable slope {
+  type discrete [ 3 ] { flat, moderate, steep };
+}
+
+variable elevation {
+  type discrete [ 3 ] { lowland, montane, alpine };
+}
+
+variable temperature {
+  type discrete [ 3 ] { cool, warm, hot };
+}
+
+variable wind_speed {
+  type discrete [ 3 ] { calm, moderate, strong };
+}
+
+variable terrain_flammability {
+  type discrete [ 3 ] { low, medium, high };
+}
+
+variable fire_weather {
+  type discrete [ 3 ] { safe, elevated, dangerous };
+}
+
+variable wildfire_risk {
+  type discrete [ 3 ] { low, medium, high };
+}
+
+// Uniform priors for evidence nodes (overridden by spatial evidence at infer-time)
+probability ( slope ) {
+  table 0.333, 0.333, 0.334;
+}
+
+probability ( elevation ) {
+  table 0.333, 0.333, 0.334;
+}
+
+probability ( temperature ) {
+  table 0.333, 0.333, 0.334;
+}
+
+probability ( wind_speed ) {
+  table 0.333, 0.333, 0.334;
+}
+
+// P(terrain_flammability | slope, elevation)
+// slope varies slowest (flat → moderate → steep)
+// elevation varies fastest (lowland → montane → alpine)
+//
+// Rationale:
+//   - Steep lowland slopes host dense dry Mediterranean scrub (maquis/garrigue)
+//     — highest fuel load, worst fire spread potential
+//   - Flat alpine terrain is rocky/sparsely vegetated — lowest flammability
+//   - Montane forests on steep slopes are intermediate (moister but fire-prone)
+probability ( terrain_flammability | slope, elevation ) {
+  (flat,     lowland)  0.70, 0.25, 0.05;
+  (flat,     montane)  0.55, 0.35, 0.10;
+  (flat,     alpine)   0.80, 0.15, 0.05;
+  (moderate, lowland)  0.25, 0.45, 0.30;
+  (moderate, montane)  0.20, 0.40, 0.40;
+  (moderate, alpine)   0.45, 0.40, 0.15;
+  (steep,    lowland)  0.10, 0.30, 0.60;
+  (steep,    montane)  0.10, 0.35, 0.55;
+  (steep,    alpine)   0.35, 0.45, 0.20;
+}
+
+// P(fire_weather | temperature, wind_speed)
+// temperature varies slowest (cool → warm → hot)
+// wind_speed varies fastest (calm → moderate → strong)
+//
+// Rationale:
+//   - Hot + strong wind = extreme fire danger (Sirocco events in Calabria)
+//   - Cool + calm = essentially no fire weather risk
+probability ( fire_weather | temperature, wind_speed ) {
+  (cool, calm)     0.90, 0.08, 0.02;
+  (cool, moderate) 0.75, 0.20, 0.05;
+  (cool, strong)   0.60, 0.30, 0.10;
+  (warm, calm)     0.60, 0.30, 0.10;
+  (warm, moderate) 0.35, 0.45, 0.20;
+  (warm, strong)   0.20, 0.40, 0.40;
+  (hot,  calm)     0.30, 0.45, 0.25;
+  (hot,  moderate) 0.10, 0.35, 0.55;
+  (hot,  strong)   0.05, 0.15, 0.80;
+}
+
+// P(wildfire_risk | terrain_flammability, fire_weather)
+// terrain_flammability varies slowest (low → medium → high)
+// fire_weather varies fastest (safe → elevated → dangerous)
+probability ( wildfire_risk | terrain_flammability, fire_weather ) {
+  (low,    safe)      0.92, 0.07, 0.01;
+  (low,    elevated)  0.70, 0.25, 0.05;
+  (low,    dangerous) 0.50, 0.38, 0.12;
+  (medium, safe)      0.65, 0.30, 0.05;
+  (medium, elevated)  0.30, 0.50, 0.20;
+  (medium, dangerous) 0.15, 0.40, 0.45;
+  (high,   safe)      0.45, 0.45, 0.10;
+  (high,   elevated)  0.15, 0.35, 0.50;
+  (high,   dangerous) 0.03, 0.12, 0.85;
+}
