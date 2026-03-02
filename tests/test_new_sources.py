@@ -14,7 +14,7 @@ from geobn._types import RasterData
 from geobn.grid import GridSpec
 from geobn.sources.wcs_source import WCSSource
 from geobn.sources.kartverket_source import KartverketDTMSource
-from geobn.sources.emodnet_source import EMODnetBathymetrySource
+from geobn.sources.emodnet_source import EMODnetBathymetrySource, EMODnetShippingDensitySource
 from geobn.sources.met_norway_source import (
     METOceanForecastSource,
     METLocationForecastSource,
@@ -681,7 +681,92 @@ class TestHubOceanSource:
 
 
 # ---------------------------------------------------------------------------
-# Namespace smoke test: all 8 new sources importable from geobn
+# EMODnetShippingDensitySource
+# ---------------------------------------------------------------------------
+
+class TestEMODnetShippingDensitySource:
+    def test_invalid_ship_type_raises_value_error(self):
+        with pytest.raises(ValueError, match="ship_type"):
+            EMODnetShippingDensitySource(ship_type="submarine")
+
+    def test_valid_ship_types_accepted(self):
+        for ship_type in ("all", "cargo", "tanker", "fishing", "passenger", "highspeed"):
+            src = EMODnetShippingDensitySource(ship_type=ship_type)
+            assert src._ship_type == ship_type
+
+    def test_layer_name_pattern(self):
+        src = EMODnetShippingDensitySource(ship_type="cargo", year=2021)
+        assert src._wcs._layer == "emodnet:vessel_density_cargo_2021_annual_avg"
+
+    def test_requires_grid(self):
+        pytest.importorskip("rasterio")
+        src = EMODnetShippingDensitySource()
+        mock_resp = MagicMock()
+        mock_resp.ok = False
+        mock_resp.status_code = 400
+        mock_resp.text = "Missing grid"
+        with pytest.raises(ValueError, match="grid context"):
+            src.fetch(grid=None)
+
+    def test_http_error_raises_runtime_error(self, small_grid):
+        pytest.importorskip("rasterio")
+        mock_resp = MagicMock()
+        mock_resp.ok = False
+        mock_resp.status_code = 500
+        mock_resp.text = "Internal Server Error"
+        with patch("requests.get", return_value=mock_resp):
+            src = EMODnetShippingDensitySource()
+            with pytest.raises(RuntimeError, match="HTTP 500"):
+                src.fetch(grid=small_grid)
+
+    def test_nodata_sentinel_replaced_with_nan(self, small_grid):
+        pytest.importorskip("rasterio")
+        array = np.array([[1.5,  -0.5, 3.0,  0.0,   2.0],
+                          [0.8,   1.0, 2.0,  1e7,   0.5],
+                          [0.3,   0.1, 0.9,  0.7,   1.2],
+                          [2.1,   0.4, 0.6,  0.2,   0.1],
+                          [0.05,  0.9, 1.1, -1.0,   0.3]], dtype=np.float32)
+        tiff_bytes = _make_geotiff_bytes(array)
+
+        mock_resp = MagicMock()
+        mock_resp.ok = True
+        mock_resp.content = tiff_bytes
+
+        with patch("requests.get", return_value=mock_resp):
+            src = EMODnetShippingDensitySource()
+            data = src.fetch(grid=small_grid)
+
+        result = data.array
+        assert np.isnan(result[0, 1])   # -0.5  → NaN (negative)
+        assert np.isnan(result[1, 3])   # 1e7   → NaN (> 1e6)
+        assert np.isnan(result[4, 3])   # -1.0  → NaN (negative)
+        assert not np.isnan(result[0, 0])  # 1.5  is valid
+        assert not np.isnan(result[0, 3])  # 0.0  is valid (zero density)
+
+    def test_successful_fetch_returns_raster_data(self, small_grid):
+        pytest.importorskip("rasterio")
+        array = np.ones((5, 5), dtype=np.float32) * 2.5
+        tiff_bytes = _make_geotiff_bytes(array)
+
+        mock_resp = MagicMock()
+        mock_resp.ok = True
+        mock_resp.content = tiff_bytes
+        with patch("requests.get", return_value=mock_resp):
+            src = EMODnetShippingDensitySource(ship_type="fishing", year=2022)
+            data = src.fetch(grid=small_grid)
+
+        assert isinstance(data, RasterData)
+        assert data.array.dtype == np.float32
+        assert data.crs is not None
+        assert data.transform is not None
+        assert np.allclose(data.array, 2.5)
+
+    def test_in_geobn_namespace(self):
+        assert hasattr(geobn, "EMODnetShippingDensitySource")
+
+
+# ---------------------------------------------------------------------------
+# Namespace smoke test: all 9 new sources importable from geobn
 # ---------------------------------------------------------------------------
 
 def test_all_new_sources_in_geobn_namespace():
@@ -689,6 +774,7 @@ def test_all_new_sources_in_geobn_namespace():
         "WCSSource",
         "KartverketDTMSource",
         "EMODnetBathymetrySource",
+        "EMODnetShippingDensitySource",
         "METOceanForecastSource",
         "METLocationForecastSource",
         "CopernicusMarineSource",

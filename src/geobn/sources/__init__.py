@@ -2,7 +2,7 @@ from .array_source import ArraySource
 from .barentswatch_source import BarentswatchAISSource
 from .constant_source import ConstantSource
 from .copernicus_source import CopernicusMarineSource
-from .emodnet_source import EMODnetBathymetrySource
+from .emodnet_source import EMODnetBathymetrySource, EMODnetShippingDensitySource
 from .hubocean_source import HubOceanSource
 from .kartverket_source import KartverketDTMSource
 from .met_norway_source import METLocationForecastSource, METOceanForecastSource
@@ -17,6 +17,7 @@ __all__ = [
     "ConstantSource",
     "CopernicusMarineSource",
     "EMODnetBathymetrySource",
+    "EMODnetShippingDensitySource",
     "HubOceanSource",
     "KartverketDTMSource",
     "METLocationForecastSource",
