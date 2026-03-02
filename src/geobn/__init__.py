@@ -3,10 +3,18 @@ from .network import GeoBayesianNetwork, load
 from .result import InferenceResult
 from .sources import (
     ArraySource,
+    BarentswatchAISSource,
     ConstantSource,
+    CopernicusMarineSource,
+    EMODnetBathymetrySource,
+    HubOceanSource,
+    KartverketDTMSource,
+    METLocationForecastSource,
+    METOceanForecastSource,
     OpenMeteoSource,
     RasterSource,
     URLSource,
+    WCSSource,
 )
 
 __all__ = [
@@ -14,8 +22,16 @@ __all__ = [
     "GeoBayesianNetwork",
     "InferenceResult",
     "ArraySource",
+    "BarentswatchAISSource",
     "ConstantSource",
+    "CopernicusMarineSource",
+    "EMODnetBathymetrySource",
+    "HubOceanSource",
+    "KartverketDTMSource",
+    "METLocationForecastSource",
+    "METOceanForecastSource",
     "OpenMeteoSource",
     "RasterSource",
     "URLSource",
+    "WCSSource",
 ]
