@@ -170,7 +170,7 @@ def show_map(
     center = [(lat_min + lat_max) / 2, (lon_min + lon_max) / 2]
 
     # ── Map + basemaps ─────────────────────────────────────────────────────
-    m = folium.Map(location=center, zoom_start=9, control_scale=True)
+    m = folium.Map(location=center, zoom_start=9, control_scale=True, tiles=None)
 
     folium.TileLayer(
         tiles="https://tile.opentopomap.org/{z}/{x}/{y}.png",
@@ -182,6 +182,12 @@ def show_map(
         ),
         name="OpenTopoMap",
         max_zoom=17,
+    ).add_to(m)
+    folium.TileLayer(
+        tiles="https://cache.kartverket.no/v1/wmts/1.0.0/topo/default/webmercator/{z}/{y}/{x}.png",
+        attr='© <a href="https://www.kartverket.no/">Kartverket</a>',
+        name="Kartverket Topo (Norway)",
+        max_zoom=18,
     ).add_to(m)
     folium.TileLayer("OpenStreetMap", name="OpenStreetMap").add_to(m)
 
