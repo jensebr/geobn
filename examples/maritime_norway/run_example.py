@@ -73,6 +73,7 @@ CRS = "EPSG:4326"
 RESOLUTION = 0.01  # degrees (~1 km at this latitude)
 
 OUT_DIR = Path(__file__).parent / "output"
+CACHE_DIR = Path(__file__).parent / "cache"  # static sources cached here after first run
 
 
 # ---------------------------------------------------------------------------
@@ -148,7 +149,7 @@ def main() -> None:
     # ── 2. Bathymetry → water depth + land mask ────────────────────────────
     print("\nFetching EMODnet Bathymetry ...")
     try:
-        bathy = geobn.EMODnetBathymetrySource().fetch(grid=ref_grid)
+        bathy = geobn.EMODnetBathymetrySource(cache_dir=CACHE_DIR).fetch(grid=ref_grid)
     except Exception as exc:
         sys.exit(f"ERROR fetching bathymetry: {exc}")
 
@@ -207,7 +208,7 @@ def main() -> None:
     )
     bn.set_input(
         "vessel_density",
-        geobn.EMODnetShippingDensitySource(ship_type="all", year=2022),
+        geobn.EMODnetShippingDensitySource(ship_type="all", year=2022, cache_dir=CACHE_DIR),
     )
 
     # ── 5. Discretizations ────────────────────────────────────────────────
