@@ -1,3 +1,4 @@
+from ._base import DataSource
 from .array_source import ArraySource
 from .barentswatch_source import BarentswatchAISSource
 from .constant_source import ConstantSource
@@ -12,6 +13,7 @@ from .url_source import URLSource
 from .wcs_source import WCSSource
 
 __all__ = [
+    "DataSource",
     "ArraySource",
     "BarentswatchAISSource",
     "ConstantSource",
