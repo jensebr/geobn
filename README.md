@@ -100,6 +100,26 @@ uv run python examples/maritime_norway/run_example.py
 
 ---
 
+## Documentation
+
+Full docs (API reference, concepts, examples) are hosted at:
+**https://jensebr.github.io/geobn**
+
+To read the docs locally:
+
+```bash
+uv pip install -e ".[docs]"
+mkdocs serve          # browse at http://127.0.0.1:8000
+```
+
+To build the static site:
+
+```bash
+mkdocs build --strict
+```
+
+---
+
 ## Development
 
 ```bash
