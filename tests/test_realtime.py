@@ -1,0 +1,316 @@
+"""Tests for real-time / repeated-inference optimisations.
+
+Covers:
+  - freeze()   — static-node caching (Tier 1)
+  - precompute() — full table lookup (Tier 2)
+  - clear_cache() — cache invalidation
+"""
+from __future__ import annotations
+
+import numpy as np
+import pytest
+from affine import Affine
+
+from geobn.network import GeoBayesianNetwork
+from geobn.sources.array_source import ArraySource
+from geobn.sources.constant_source import ConstantSource
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
+_CRS = "EPSG:4326"
+_TRANSFORM = Affine(0.1, 0, 0.0, 0, -0.1, 49.3)
+_H, _W = 3, 3
+
+# Slope array covering all three states: flat / moderate / steep
+_SLOPE = np.array(
+    [[5.0, 20.0, 35.0],
+     [5.0, 20.0, 35.0],
+     [5.0, 20.0, 35.0]],
+    dtype=np.float32,
+)
+# Rainfall array: low / medium / high per column
+_RAIN = np.array(
+    [[10.0, 50.0, 150.0],
+     [10.0, 50.0, 150.0],
+     [10.0, 50.0, 150.0]],
+    dtype=np.float32,
+)
+
+_SLOPE_DISC = [0, 10, 30, 90]
+_SLOPE_LABELS = ["flat", "moderate", "steep"]
+_RAIN_DISC = [0, 25, 75, 200]
+_RAIN_LABELS = ["low", "medium", "high"]
+
+
+def _make_bn(fire_risk_model) -> GeoBayesianNetwork:
+    """Return a wired-up BN using the fire-risk fixture."""
+    bn = GeoBayesianNetwork(fire_risk_model)
+    bn.set_grid(_CRS, 0.1, (0.0, 49.0, 0.3, 49.3))
+    bn.set_input("slope", ArraySource(_SLOPE, crs=_CRS, transform=_TRANSFORM))
+    bn.set_input("rainfall", ArraySource(_RAIN, crs=_CRS, transform=_TRANSFORM))
+    bn.set_discretization("slope", _SLOPE_DISC, _SLOPE_LABELS)
+    bn.set_discretization("rainfall", _RAIN_DISC, _RAIN_LABELS)
+    return bn
+
+
+# ---------------------------------------------------------------------------
+# TestFreezeCache
+# ---------------------------------------------------------------------------
+
+
+class TestFreezeCache:
+    def test_freeze_results_match_normal(self, fire_risk_model):
+        """Frozen-cache path must produce identical results to the normal path."""
+        bn_normal = _make_bn(fire_risk_model)
+        result_normal = bn_normal.infer(query=["fire_risk"])
+
+        bn_frozen = _make_bn(fire_risk_model)
+        bn_frozen.freeze("slope")
+        result_frozen = bn_frozen.infer(query=["fire_risk"])
+
+        np.testing.assert_allclose(
+            result_normal.probabilities["fire_risk"],
+            result_frozen.probabilities["fire_risk"],
+            atol=1e-5,
+        )
+
+    def test_freeze_source_fetched_only_once(self, fire_risk_model):
+        """A frozen source's fetch() must be called exactly once across N infer() calls."""
+        bn = _make_bn(fire_risk_model)
+
+        fetch_count = [0]
+        original_fetch = bn._inputs["slope"].fetch
+
+        def counting_fetch(grid=None):
+            fetch_count[0] += 1
+            return original_fetch(grid=grid)
+
+        bn._inputs["slope"].fetch = counting_fetch
+
+        bn.freeze("slope")
+        for _ in range(4):
+            bn.infer(query=["fire_risk"])
+
+        assert fetch_count[0] == 1, (
+            f"Expected slope to be fetched exactly once, got {fetch_count[0]}"
+        )
+
+    def test_non_frozen_source_fetched_every_call(self, fire_risk_model):
+        """A non-frozen source must be re-fetched on every infer() call."""
+        bn = _make_bn(fire_risk_model)
+
+        fetch_count = [0]
+        original_fetch = bn._inputs["rainfall"].fetch
+
+        def counting_fetch(grid=None):
+            fetch_count[0] += 1
+            return original_fetch(grid=grid)
+
+        bn._inputs["rainfall"].fetch = counting_fetch
+
+        bn.freeze("slope")  # freeze slope, NOT rainfall
+        for _ in range(3):
+            bn.infer(query=["fire_risk"])
+
+        assert fetch_count[0] == 3, (
+            f"Expected rainfall fetched 3 times, got {fetch_count[0]}"
+        )
+
+    def test_freeze_with_changing_dynamic_input(self, fire_risk_model):
+        """Results change correctly when a dynamic input changes between calls."""
+        bn = _make_bn(fire_risk_model)
+        bn.freeze("slope")
+
+        # Low rainfall everywhere
+        bn.set_input("rainfall", ArraySource(
+            np.full((_H, _W), 10.0, dtype=np.float32), crs=_CRS, transform=_TRANSFORM
+        ))
+        result_low = bn.infer(query=["fire_risk"])
+
+        # High rainfall everywhere
+        bn.set_input("rainfall", ArraySource(
+            np.full((_H, _W), 150.0, dtype=np.float32), crs=_CRS, transform=_TRANSFORM
+        ))
+        result_high = bn.infer(query=["fire_risk"])
+
+        # In the synthetic CPT, higher rainfall correlates with higher fire risk
+        # (steep+high → 0.70 vs steep+low → 0.40).  The key check is that the
+        # cached terrain arrays give different results when weather changes.
+        p_high_low_rain = float(np.nanmean(result_low.probabilities["fire_risk"][..., 2]))
+        p_high_high_rain = float(np.nanmean(result_high.probabilities["fire_risk"][..., 2]))
+        assert p_high_high_rain != p_high_low_rain, (
+            "Expected results to differ when rainfall input changes"
+        )
+
+    def test_clear_cache_triggers_refetch(self, fire_risk_model):
+        """After clear_cache(), the frozen source must be fetched again."""
+        bn = _make_bn(fire_risk_model)
+
+        fetch_count = [0]
+        original_fetch = bn._inputs["slope"].fetch
+
+        def counting_fetch(grid=None):
+            fetch_count[0] += 1
+            return original_fetch(grid=grid)
+
+        bn._inputs["slope"].fetch = counting_fetch
+
+        bn.freeze("slope")
+        bn.infer(query=["fire_risk"])   # fetches once → count = 1
+        bn.infer(query=["fire_risk"])   # uses cache → count still 1
+        bn.clear_cache()
+        bn.infer(query=["fire_risk"])   # cache cleared → fetches again → count = 2
+
+        assert fetch_count[0] == 2
+
+    def test_freeze_empty_set_is_no_op(self, fire_risk_model):
+        """Calling freeze() with no arguments should produce normal inference."""
+        bn = _make_bn(fire_risk_model)
+        bn_ref = _make_bn(fire_risk_model)
+
+        bn.freeze()  # no frozen nodes
+        result = bn.infer(query=["fire_risk"])
+        result_ref = bn_ref.infer(query=["fire_risk"])
+
+        np.testing.assert_allclose(
+            result.probabilities["fire_risk"],
+            result_ref.probabilities["fire_risk"],
+            atol=1e-5,
+        )
+
+    def test_freeze_validates_node_name(self, fire_risk_model):
+        bn = _make_bn(fire_risk_model)
+        with pytest.raises(ValueError, match="does not exist"):
+            bn.freeze("nonexistent_node")
+
+    def test_ve_cached_across_calls(self, fire_risk_model):
+        """_cached_ve should be populated after the first infer() call."""
+        bn = _make_bn(fire_risk_model)
+        assert bn._cached_ve is None
+        bn.infer(query=["fire_risk"])
+        assert bn._cached_ve is not None
+        ve_first = bn._cached_ve
+        bn.infer(query=["fire_risk"])
+        assert bn._cached_ve is ve_first, "VE object should be reused, not recreated"
+
+
+# ---------------------------------------------------------------------------
+# TestPrecompute
+# ---------------------------------------------------------------------------
+
+
+class TestPrecompute:
+    def test_precompute_table_shape(self, fire_risk_model):
+        """Table shape must be (n_slope, n_rain, n_fire_risk) = (3, 3, 3)."""
+        bn = _make_bn(fire_risk_model)
+        bn.precompute(query=["fire_risk"])
+
+        assert "fire_risk" in bn._inference_table
+        expected_shape = (3, 3, 3)  # slope_states × rain_states × risk_states
+        assert bn._inference_table["fire_risk"].shape == expected_shape
+
+    def test_precompute_matches_normal_inference(self, fire_risk_model):
+        """Table-path results must match normal-path results pixel-for-pixel."""
+        bn_normal = _make_bn(fire_risk_model)
+        result_normal = bn_normal.infer(query=["fire_risk"])
+
+        bn_table = _make_bn(fire_risk_model)
+        bn_table.precompute(query=["fire_risk"])
+        result_table = bn_table.infer(query=["fire_risk"])
+
+        np.testing.assert_allclose(
+            result_normal.probabilities["fire_risk"],
+            result_table.probabilities["fire_risk"],
+            atol=1e-5,
+        )
+
+    def test_precompute_probs_sum_to_one(self, fire_risk_model):
+        """Every valid pixel's probabilities must sum to 1.0."""
+        bn = _make_bn(fire_risk_model)
+        bn.precompute(query=["fire_risk"])
+        result = bn.infer(query=["fire_risk"])
+
+        probs = result.probabilities["fire_risk"]
+        valid = ~np.isnan(probs[..., 0])
+        np.testing.assert_allclose(
+            probs[valid].sum(axis=-1), 1.0, atol=1e-5
+        )
+
+    def test_precompute_realtime_loop(self, fire_risk_model):
+        """Multiple infer() calls after precompute() all return correct results."""
+        bn = _make_bn(fire_risk_model)
+        bn.freeze("slope")
+        bn.precompute(query=["fire_risk"])
+
+        rain_values = [10.0, 50.0, 100.0, 150.0]
+        for rain_val in rain_values:
+            bn.set_input("rainfall", ConstantSource(rain_val))
+
+            result_table = bn.infer(query=["fire_risk"])
+
+            # Compare against a fresh un-optimised BN for the same scenario
+            bn_ref = _make_bn(fire_risk_model)
+            bn_ref.set_input("rainfall", ConstantSource(rain_val))
+            result_ref = bn_ref.infer(query=["fire_risk"])
+
+            np.testing.assert_allclose(
+                result_table.probabilities["fire_risk"],
+                result_ref.probabilities["fire_risk"],
+                atol=1e-4,
+                err_msg=f"Mismatch at rainfall={rain_val}",
+            )
+
+    def test_precompute_no_pgmpy_on_second_call(self, fire_risk_model):
+        """After precompute(), the table path is activated (table is non-empty)."""
+        bn = _make_bn(fire_risk_model)
+        bn.precompute(query=["fire_risk"])
+
+        assert bn._inference_table, "Table should be populated after precompute()"
+        assert bn._table_node_order == ["slope", "rainfall"]
+        assert bn._table_query_nodes == ["fire_risk"]
+
+    def test_precompute_raises_without_discretizations(self, fire_risk_model):
+        """precompute() must raise RuntimeError if discretizations are missing."""
+        bn = GeoBayesianNetwork(fire_risk_model)
+        bn.set_grid(_CRS, 0.1, (0.0, 49.0, 0.3, 49.3))
+        bn.set_input("slope", ArraySource(_SLOPE, crs=_CRS, transform=_TRANSFORM))
+        bn.set_input("rainfall", ArraySource(_RAIN, crs=_CRS, transform=_TRANSFORM))
+        # intentionally skip set_discretization()
+
+        with pytest.raises(RuntimeError, match="No discretization"):
+            bn.precompute(query=["fire_risk"])
+
+    def test_precompute_nodata_propagates(self, fire_risk_model):
+        """NaN in input must propagate as NaN in table-path output."""
+        slope_with_nan = _SLOPE.copy()
+        slope_with_nan[1, 1] = np.nan
+
+        bn = GeoBayesianNetwork(fire_risk_model)
+        bn.set_grid(_CRS, 0.1, (0.0, 49.0, 0.3, 49.3))
+        bn.set_input("slope", ArraySource(slope_with_nan, crs=_CRS, transform=_TRANSFORM))
+        bn.set_input("rainfall", ArraySource(_RAIN, crs=_CRS, transform=_TRANSFORM))
+        bn.set_discretization("slope", _SLOPE_DISC, _SLOPE_LABELS)
+        bn.set_discretization("rainfall", _RAIN_DISC, _RAIN_LABELS)
+        bn.precompute(query=["fire_risk"])
+
+        result = bn.infer(query=["fire_risk"])
+        probs = result.probabilities["fire_risk"]
+
+        # Pixel (1,1) had NaN slope — must be NaN in output
+        assert np.all(np.isnan(probs[1, 1, :]))
+        # Pixel (0,0) is valid
+        assert not np.any(np.isnan(probs[0, 0, :]))
+
+    def test_clear_cache_resets_table(self, fire_risk_model):
+        """clear_cache() must remove the precomputed table."""
+        bn = _make_bn(fire_risk_model)
+        bn.precompute(query=["fire_risk"])
+        assert bn._inference_table
+
+        bn.clear_cache()
+        assert not bn._inference_table
+        assert not bn._table_node_order
+        assert not bn._table_query_nodes

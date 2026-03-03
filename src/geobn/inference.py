@@ -31,6 +31,7 @@ def run_inference(
     query_nodes: list[str],
     query_state_names: dict[str, list[str]],
     nodata_mask: np.ndarray,
+    ve: VariableElimination | None = None,
 ) -> dict[str, np.ndarray]:
     """Run batched pixel-wise inference.
 
@@ -48,6 +49,11 @@ def run_inference(
         Mapping from query node name to its ordered list of state labels.
     nodata_mask:
         (H, W) boolean array; True where any input pixel is NoData.
+    ve:
+        Pre-built :class:`pgmpy.inference.VariableElimination` engine.  If
+        *None* (default) a new one is created from *model*.  Pass a cached
+        instance to avoid recreating it on every call when the model does not
+        change.
 
     Returns
     -------
@@ -78,7 +84,8 @@ def run_inference(
     # unique_combos: (n_unique, n_nodes)
     # inverse:       (n_valid,)  maps each valid pixel → unique combo index
 
-    ve = VariableElimination(model)
+    if ve is None:
+        ve = VariableElimination(model)
 
     # Results per unique combo: dict[node] → list of probability arrays
     combo_probs: dict[str, list[np.ndarray]] = {node: [] for node in query_nodes}
@@ -97,6 +104,57 @@ def run_inference(
         probs_per_combo = np.stack(combo_probs[node], axis=0)  # (n_unique, n_states)
         flat_probs = probs_per_combo[inverse]                   # (n_valid, n_states)
         output[node][valid] = flat_probs
+
+    return output
+
+
+def run_inference_from_table(
+    table: dict[str, np.ndarray],
+    node_order: list[str],
+    evidence_indices: dict[str, np.ndarray],
+    nodata_mask: np.ndarray,
+) -> dict[str, np.ndarray]:
+    """Map pixel-wise discrete evidence to precomputed probabilities via fancy indexing.
+
+    This is the zero-pgmpy fast path used after
+    :meth:`~geobn.GeoBayesianNetwork.precompute`.  Probabilities are read from
+    a lookup table using numpy advanced indexing — O(H×W) rather than running
+    pgmpy per unique evidence combination.
+
+    Parameters
+    ----------
+    table:
+        Mapping from query node name to a numpy array of shape
+        ``(n_states_0, n_states_1, ..., n_states_k, n_query_states)`` where
+        the first *k* axes correspond to the *k* nodes in *node_order*.
+    node_order:
+        Evidence node names in the order matching the table axes.
+    evidence_indices:
+        Mapping from node name to ``(H, W)`` int array of state indices.
+        Nodata pixels (index -1) are masked out via *nodata_mask*.
+    nodata_mask:
+        ``(H, W)`` boolean array; True where any input pixel is NoData.
+
+    Returns
+    -------
+    Mapping from query node name to a ``(H, W, n_states)`` float32 array.
+    NaN where *nodata_mask* is True.
+    """
+    H, W = nodata_mask.shape
+
+    # Build index tuple: one (H, W) int array per evidence axis.
+    # Advanced indexing on a table of shape (*n_states_per_node, n_query_states)
+    # with k arrays of shape (H, W) produces output of shape (H, W, n_query_states).
+    idx = tuple(evidence_indices[n] for n in node_order)
+
+    output: dict[str, np.ndarray] = {}
+    for node, tbl in table.items():
+        n_states = tbl.shape[-1]
+        probs = np.asarray(tbl[idx], dtype=np.float32)
+        # broadcast_to handles the edge case where all indices happen to be scalars
+        probs = np.broadcast_to(probs, (H, W, n_states)).copy()
+        probs[nodata_mask] = np.nan
+        output[node] = probs
 
     return output
 

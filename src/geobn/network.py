@@ -1,6 +1,7 @@
 """GeoBayesianNetwork — the primary user-facing class."""
 from __future__ import annotations
 
+import itertools
 from pathlib import Path
 from typing import Any
 
@@ -8,7 +9,7 @@ import numpy as np
 
 from .discretize import DiscretizationSpec, discretize_array
 from .grid import GridSpec, align_to_grid
-from .inference import run_inference, shannon_entropy
+from .inference import run_inference, run_inference_from_table
 from .result import InferenceResult
 from .sources._base import DataSource
 
@@ -25,6 +26,23 @@ class GeoBayesianNetwork:
         bn.set_discretization("rainfall", [0, 25, 75, 200], ["low", "medium", "high"])
         result = bn.infer(query=["fire_risk"])
         result.to_geotiff("output/")
+
+    Real-time / repeated inference
+    --------------------------------
+    When only a subset of inputs change between calls (e.g. static terrain,
+    changing weather), use :meth:`freeze` to cache static node arrays::
+
+        bn.freeze("slope_angle", "aspect")          # terrain is static
+        result = bn.infer(query=["avalanche_risk"]) # first call: fetches & caches terrain
+
+        # Subsequent calls re-process only weather inputs:
+        bn.set_input("recent_snow", geobn.ConstantSource(35.0))
+        result = bn.infer(query=["avalanche_risk"]) # terrain reused from cache
+
+    For maximum throughput, pre-run all evidence combinations once::
+
+        bn.precompute(query=["avalanche_risk"])      # one-time cost: all combos
+        result = bn.infer(query=["avalanche_risk"])  # O(H×W) numpy indexing, no pgmpy
     """
 
     def __init__(self, model: Any) -> None:
@@ -38,6 +56,17 @@ class GeoBayesianNetwork:
         self._inputs: dict[str, DataSource] = {}
         self._discretizations: dict[str, DiscretizationSpec] = {}
         self._grid: GridSpec | None = None
+
+        # ── Real-time optimisation state ─────────────────────────────────────
+        # Tier 1 — frozen input cache
+        self._frozen_nodes: set[str] = set()
+        self._frozen_cache: dict[str, np.ndarray] = {}   # node → (H,W) int16 array
+        self._cached_ref_grid: GridSpec | None = None
+        self._cached_ve: Any | None = None               # VariableElimination instance
+        # Tier 2 — precomputed inference table
+        self._inference_table: dict[str, np.ndarray] = {}
+        self._table_node_order: list[str] = []
+        self._table_query_nodes: list[str] = []
 
     # ------------------------------------------------------------------
     # Configuration
@@ -102,6 +131,124 @@ class GeoBayesianNetwork:
         self._grid = GridSpec.from_params(crs, resolution, extent)
 
     # ------------------------------------------------------------------
+    # Real-time optimisation
+    # ------------------------------------------------------------------
+
+    def freeze(self, *node_names: str) -> None:
+        """Mark one or more input nodes as static.
+
+        On the first :meth:`infer` call after freezing, each frozen node is
+        fetched, aligned to the grid, and discretised normally; the resulting
+        integer index array is then cached in memory.  On all subsequent calls
+        the cached array is reused, skipping fetch, alignment, and
+        discretisation for those nodes.
+
+        Calling :meth:`freeze` with a different set of nodes invalidates any
+        previously cached data.
+
+        Parameters
+        ----------
+        *node_names:
+            Names of input nodes whose data will not change between
+            :meth:`infer` calls.
+        """
+        for name in node_names:
+            self._validate_node_exists(name)
+        new_frozen = set(node_names)
+        if new_frozen != self._frozen_nodes:
+            self._frozen_nodes = new_frozen
+            self.clear_cache()
+        else:
+            self._frozen_nodes = new_frozen
+
+    def clear_cache(self) -> None:
+        """Invalidate all cached discrete arrays and the inference table.
+
+        Call this if a frozen input actually changes (e.g. you replaced the
+        terrain source), or after calling :meth:`freeze` with a different set
+        of nodes.  The next :meth:`infer` call will re-fetch and re-cache all
+        frozen nodes.
+        """
+        self._frozen_cache.clear()
+        self._cached_ref_grid = None
+        self._cached_ve = None
+        self._inference_table.clear()
+        self._table_node_order = []
+        self._table_query_nodes = []
+
+    def precompute(self, query: list[str]) -> None:
+        """Pre-run all evidence-state combinations and store a lookup table.
+
+        After :meth:`precompute`, subsequent :meth:`infer` calls for the same
+        *query* nodes bypass pgmpy entirely: probabilities are fetched from the
+        table via numpy fancy indexing — O(H×W) rather than O(n_unique_combos)
+        pgmpy queries.
+
+        One-time cost: ``∏ n_states_i`` pgmpy queries.  For the Lyngen Alps BN
+        (3×2×3×3 state space) this is 54 queries, typically completing in well
+        under a second.
+
+        Parameters
+        ----------
+        query:
+            BN node names to precompute posteriors for.  Must match the
+            *query* passed to :meth:`infer` for the table path to activate.
+
+        Notes
+        -----
+        All inputs must have discretizations configured via
+        :meth:`set_discretization` before calling :meth:`precompute`.
+        """
+        for node in query:
+            self._validate_node_exists(node)
+        for node in self._inputs:
+            if node not in self._discretizations:
+                raise RuntimeError(
+                    f"No discretization set for '{node}'.  "
+                    f"Call set_discretization() for all inputs before precompute()."
+                )
+
+        from pgmpy.inference import VariableElimination  # noqa: PLC0415
+
+        node_order = list(self._inputs.keys())
+        state_names_per_node = {n: self._discretizations[n].labels for n in node_order}
+        n_states_per_node = [len(state_names_per_node[n]) for n in node_order]
+
+        query_state_names: dict[str, list[str]] = {}
+        for qnode in query:
+            cpd = self._model.get_cpds(qnode)
+            query_state_names[qnode] = list(cpd.state_names[qnode])
+
+        if self._cached_ve is None:
+            self._cached_ve = VariableElimination(self._model)
+        ve = self._cached_ve
+
+        # Allocate tables: shape (*n_states_per_node, n_q_states) for each query node
+        tables: dict[str, np.ndarray] = {}
+        for qnode in query:
+            n_q = len(query_state_names[qnode])
+            tables[qnode] = np.zeros(n_states_per_node + [n_q], dtype=np.float32)
+
+        n_total = 1
+        for k in n_states_per_node:
+            n_total *= k
+        print(f"Precomputing inference table: {n_total} evidence combination(s) ...")
+
+        for idx_combo in itertools.product(*[range(k) for k in n_states_per_node]):
+            evidence = {
+                node_order[i]: state_names_per_node[node_order[i]][idx_combo[i]]
+                for i in range(len(node_order))
+            }
+            for qnode in query:
+                factor = ve.query([qnode], evidence=evidence, show_progress=False)
+                tables[qnode][idx_combo] = factor.values.astype(np.float32)
+
+        self._inference_table = tables
+        self._table_node_order = node_order
+        self._table_query_nodes = list(query)
+        print(f"Precompute done.  Table shape: {next(iter(tables.values())).shape}")
+
+    # ------------------------------------------------------------------
     # Inference
     # ------------------------------------------------------------------
 
@@ -120,6 +267,13 @@ class GeoBayesianNetwork:
             Contains per-pixel probability arrays for each query node plus
             Shannon entropy.  Write to disk with ``.to_geotiff()`` or convert
             to xarray with ``.to_xarray()``.
+
+        Notes
+        -----
+        If :meth:`precompute` has been called with the same *query*, this
+        method uses numpy fancy indexing instead of pgmpy queries.  If
+        :meth:`freeze` has been called, cached discrete arrays are reused for
+        frozen nodes.
         """
         if not self._inputs:
             raise RuntimeError("No inputs registered.  Call set_input() first.")
@@ -131,6 +285,10 @@ class GeoBayesianNetwork:
         if self._grid is not None:
             ref_grid = self._grid
             pre_fetched: dict[str, Any] = {}
+        elif self._cached_ref_grid is not None:
+            # Grid already established from a previous call with frozen nodes
+            ref_grid = self._cached_ref_grid
+            pre_fetched = {}
         else:
             first_node = next(iter(self._inputs))
             first_data = self._inputs[first_node].fetch(grid=None)
@@ -152,43 +310,73 @@ class GeoBayesianNetwork:
                     f"Call bn.set_discretization('{node}', breakpoints, labels)."
                 )
 
-        # ── 3. Fetch and align all inputs ──────────────────────────────
-        aligned: dict[str, np.ndarray] = {}
-        for node, source in self._inputs.items():
-            data = pre_fetched[node] if node in pre_fetched else source.fetch(grid=ref_grid)
-            aligned[node] = align_to_grid(data, ref_grid)
-
-        # ── 4. Build NoData mask ───────────────────────────────────────
-        nodata_mask = np.zeros(ref_grid.shape, dtype=bool)
-        for arr in aligned.values():
-            nodata_mask |= np.isnan(arr)
-
-        # ── 5. Discretize ──────────────────────────────────────────────
+        # ── 3. Fetch, align, and discretize inputs ─────────────────────
+        # Frozen nodes with a cached discrete array skip all I/O and compute.
         evidence_indices: dict[str, np.ndarray] = {}
         evidence_state_names: dict[str, list[str]] = {}
-        for node, arr in aligned.items():
+        nodata_mask = np.zeros(ref_grid.shape, dtype=bool)
+
+        for node, source in self._inputs.items():
             spec = self._discretizations[node]
-            idx = discretize_array(arr, spec)
-            # Treat discretization NoData (-1) as spatial NoData
+
+            if node in self._frozen_nodes and node in self._frozen_cache:
+                # Fast path: reuse cached discrete index array
+                idx = self._frozen_cache[node]
+            else:
+                data = (
+                    pre_fetched[node]
+                    if node in pre_fetched
+                    else source.fetch(grid=ref_grid)
+                )
+                arr = align_to_grid(data, ref_grid)
+                idx = discretize_array(arr, spec)
+
+                if node in self._frozen_nodes:
+                    # Cache discrete array; also cache the grid so the next call
+                    # can skip the first-node fetch that derives the grid.
+                    self._frozen_cache[node] = idx
+                    if self._cached_ref_grid is None:
+                        self._cached_ref_grid = ref_grid
+
             nodata_mask |= idx < 0
             evidence_indices[node] = idx
             evidence_state_names[node] = spec.labels
 
-        # ── 6. Collect query node state names from the BN ──────────────
+        # ── 4. Collect query node state names from the BN ──────────────
         query_state_names: dict[str, list[str]] = {}
         for node in query:
             cpd = self._model.get_cpds(node)
             query_state_names[node] = list(cpd.state_names[node])
 
-        # ── 7. Run inference ───────────────────────────────────────────
-        probabilities = run_inference(
-            model=self._model,
-            evidence_indices=evidence_indices,
-            evidence_state_names=evidence_state_names,
-            query_nodes=query,
-            query_state_names=query_state_names,
-            nodata_mask=nodata_mask,
-        )
+        # ── 5. Run inference ───────────────────────────────────────────
+        if (
+            self._inference_table
+            and sorted(query) == sorted(self._table_query_nodes)
+            and list(self._inputs.keys()) == self._table_node_order
+        ):
+            # Tier-2 fast path: pure numpy table lookup, no pgmpy per call
+            probabilities = run_inference_from_table(
+                table=self._inference_table,
+                node_order=self._table_node_order,
+                evidence_indices=evidence_indices,
+                nodata_mask=nodata_mask,
+            )
+        else:
+            # Normal path (Tier-1 or uncached): pgmpy VE with cached engine
+            if self._cached_ve is None:
+                from pgmpy.inference import VariableElimination  # noqa: PLC0415
+
+                self._cached_ve = VariableElimination(self._model)
+
+            probabilities = run_inference(
+                model=self._model,
+                evidence_indices=evidence_indices,
+                evidence_state_names=evidence_state_names,
+                query_nodes=query,
+                query_state_names=query_state_names,
+                nodata_mask=nodata_mask,
+                ve=self._cached_ve,
+            )
 
         return InferenceResult(
             probabilities=probabilities,
