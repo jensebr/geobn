@@ -72,8 +72,8 @@ tests/
   test_sources.py
   test_new_sources.py    Tests for all 8 new sources (mocked, no network)
 examples/
-  synthetic_fire_risk/   Offline demo: ArraySource + synthetic data
-  calabria_wildfire/     Real-data demo: Copernicus DEM + Open-Meteo, Italy
+  lyngen_alps/           Avalanche risk: Kartverket DTM + ConstantSource (flagship intro example)
+  maritime_norway/       Maritime nav risk: EMODnet + MET Norway + AIS density
 tools/
   xdsl_to_bif.py         Converter: GeNIe .xdsl → standard .bif
 private/                 Gitignored; local experiments only
@@ -144,8 +144,8 @@ uv run pytest tests/ -v
 uv run pytest tests/test_new_sources.py -v
 
 # Run examples
-uv run python examples/synthetic_fire_risk/run_example.py
-uv run python examples/calabria_wildfire/run_example.py
+uv run python examples/lyngen_alps/run_example.py
+uv run python examples/maritime_norway/run_example.py
 ```
 
 ---

@@ -83,14 +83,12 @@ DataSources  →  align to grid  →  discretize  →  BN inference  →  Infere
 | Example | Description |
 |---|---|
 | [`examples/lyngen_alps/`](examples/lyngen_alps/) | Avalanche risk: real Kartverket DTM + configurable weather, Lyngen Alps, Norway |
-| [`examples/calabria_wildfire/`](examples/calabria_wildfire/) | Wildfire risk: Copernicus DEM + Open-Meteo weather, Calabria, Italy |
 | [`examples/maritime_norway/`](examples/maritime_norway/) | Maritime navigation risk: EMODnet Bathymetry + MET Norway + AIS density |
 
 Run from the repo root:
 
 ```bash
 uv run python examples/lyngen_alps/run_example.py
-uv run python examples/calabria_wildfire/run_example.py
 uv run python examples/maritime_norway/run_example.py
 ```
 
