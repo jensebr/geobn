@@ -251,7 +251,20 @@ def main() -> None:
     ds = result.to_xarray()
     print(f"\nxarray Dataset:\n{ds}")
 
-    # ── 9. Export GeoTIFFs ────────────────────────────────────────────────
+    # ── 9. Interactive map ─────────────────────────────────────────────────
+    try:
+        html_path = result.show_map(
+            OUT_DIR,
+            extra_layers={"Water depth (m)": depth_m},
+        )
+        print(f"\nInteractive map opened in browser → {html_path}")
+        print("  Use the layer control (top-right) to switch overlays.")
+        print("  Two risk score layers shown (grounding + collision).")
+    except ImportError as exc:
+        print(f"\nSkipping interactive map ({exc})")
+        print("  Install folium: pip install geobn[viz]")
+
+    # ── 10. Export GeoTIFFs ────────────────────────────────────────────────
     try:
         result.to_geotiff(OUT_DIR)
         print(f"\nGeoTIFFs written to {OUT_DIR}/")

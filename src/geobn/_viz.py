@@ -86,6 +86,25 @@ def _cmap_to_hex(cmap_name: str, n: int = 6) -> list[str]:
     ][:n]
 
 
+def _risk_score(probs: np.ndarray) -> np.ndarray:
+    """Normalised expected-value risk score in [0, 100].
+
+    Assigns equidistant weights to ordinal states (state 0 → weight 0,
+    state n-1 → weight 1) and returns their probability-weighted sum × 100.
+    NaN propagates from nodata pixels.
+
+    Parameters
+    ----------
+    probs : (H, W, n_states) float32
+    Returns
+    -------
+    (H, W) float64 in [0, 100], NaN where probs is NaN.
+    """
+    n = probs.shape[-1]
+    weights = np.linspace(0.0, 1.0, n)          # shape (n,)
+    return 100.0 * np.sum(weights * probs, axis=-1)
+
+
 def show_map(
     result: "InferenceResult",
     output_dir: str | Path = ".",
@@ -171,34 +190,30 @@ def show_map(
         n_states = probs.shape[-1]
         states = result.state_names[node]
 
-        # Probability band per state
-        for i, state in enumerate(states):
-            if i == 0:
-                cmap_name = "YlGn"
-            elif i == n_states - 1:
-                cmap_name = "YlOrRd"
-            else:
-                cmap_name = "YlOrBr"
+        # ── Risk score (default shown) ──────────────────────────────────
+        score = _risk_score(probs)                   # (H, W) in [0, 100]
+        score_url = _array_to_png_url(score, "RdYlGn_r", 0.0, 100.0, overlay_opacity)
+        fg = folium.FeatureGroup(name=f"{node} — risk score", show=True)
+        folium.raster_layers.ImageOverlay(image=score_url, bounds=bounds, opacity=1.0).add_to(fg)
+        fg.add_to(m)
 
-            shown = i == n_states - 1  # show last (highest-risk) state by default
-            layer_name = f"P({state})"
-            img_url = _array_to_png_url(
-                probs[..., i], cmap_name, 0.0, 1.0, overlay_opacity
-            )
-            fg = folium.FeatureGroup(name=layer_name, show=shown)
+        cb = branca_cm.LinearColormap(
+            colors=_cmap_to_hex("RdYlGn_r", 7),
+            vmin=0.0, vmax=100.0,
+            caption=f"{node} — risk score (0 = low, 100 = high)",
+        )
+        cb.add_to(m)
+
+        # ── Individual probability bands (all hidden) ───────────────────
+        state_cmaps = {0: "YlGn", n_states - 1: "YlOrRd"}   # first=green, last=red
+        for i, state in enumerate(states):
+            cmap_name = state_cmaps.get(i, "YlOrBr")
+            img_url = _array_to_png_url(probs[..., i], cmap_name, 0.0, 1.0, overlay_opacity)
+            fg = folium.FeatureGroup(name=f"P({state})", show=False)
             folium.raster_layers.ImageOverlay(image=img_url, bounds=bounds, opacity=1.0).add_to(fg)
             fg.add_to(m)
 
-            if shown:
-                cb = branca_cm.LinearColormap(
-                    colors=_cmap_to_hex(cmap_name, 6),
-                    vmin=0.0,
-                    vmax=1.0,
-                    caption=f"{node} — {layer_name}",
-                )
-                cb.add_to(m)
-
-        # Argmax risk category
+        # ── Argmax risk category (hidden) ───────────────────────────────
         valid_mask = np.isfinite(probs[..., 0])
         category = np.full(probs.shape[:2], np.nan)
         category[valid_mask] = np.argmax(probs[valid_mask], axis=-1).astype(float)
@@ -207,7 +222,7 @@ def show_map(
         folium.raster_layers.ImageOverlay(image=cat_url, bounds=bounds, opacity=1.0).add_to(fg)
         fg.add_to(m)
 
-        # Shannon entropy
+        # ── Shannon entropy (hidden) ─────────────────────────────────────
         ent = result.entropy(node)
         ent_max = math.log2(n_states) if n_states > 1 else 1.0
         ent_url = _array_to_png_url(ent, "plasma", 0.0, ent_max, overlay_opacity)

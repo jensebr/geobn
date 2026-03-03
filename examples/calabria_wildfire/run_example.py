@@ -229,10 +229,26 @@ def main() -> None:
           f"{np.nanmin(ent):.3f} / {np.nanmean(ent):.3f} / "
           f"{np.nanmax(ent):.3f}")
 
-    # ── 4. Export ─────────────────────────────────────────────────────────
+    # ── 4. xarray summary ─────────────────────────────────────────────────
     ds = result.to_xarray()
     print(f"\nxarray Dataset:\n{ds}")
 
+    # ── 5. Interactive map ─────────────────────────────────────────────────
+    try:
+        html_path = result.show_map(
+            OUT_DIR,
+            extra_layers={
+                "Slope (°)": slope,
+                "Elevation (m)": elevation,
+            },
+        )
+        print(f"\nInteractive map opened in browser → {html_path}")
+        print("  Use the layer control (top-right) to switch overlays.")
+    except ImportError as exc:
+        print(f"\nSkipping interactive map ({exc})")
+        print("  Install folium: pip install geobn[viz]")
+
+    # ── 6. GeoTIFF export ─────────────────────────────────────────────────
     try:
         result.to_geotiff(OUT_DIR)
         out = OUT_DIR / "wildfire_risk.tif"
