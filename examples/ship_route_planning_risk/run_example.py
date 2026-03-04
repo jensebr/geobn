@@ -31,7 +31,7 @@ Derived inputs
                     shallower water (increasing grounding risk), 0.0 elsewhere.
                     Computed from mean wind direction × bathymetry gradient.
 
-Bayesian network (maritime_norway.bif)
+Bayesian network (ship_route_planning_risk.bif)
 --------------------------------------
     wave_height  ─┐
                   ├─► sea_state ─┬─► grounding_risk
@@ -43,7 +43,7 @@ Bayesian network (maritime_norway.bif)
     vessel_density ──────────────── collision_risk
     wind_speed   ────────────────── collision_risk
 
-Outputs (examples/maritime_norway/output/)
+Outputs (examples/ship_route_planning_risk/output/)
 ------------------------------------------
     grounding_risk.tif — 4 bands: P(low), P(medium), P(high), entropy
     collision_risk.tif — 4 bands: P(low), P(medium), P(high), entropy
@@ -52,7 +52,7 @@ Outputs (examples/maritime_norway/output/)
 
 Run
 ---
-    uv run python examples/maritime_norway/run_example.py
+    uv run python examples/ship_route_planning_risk/run_example.py
 """
 from __future__ import annotations
 
@@ -182,7 +182,7 @@ def main() -> None:
     print(f"  Onshore pixels: {100 * onshore_frac:.1f}% of sea area")
 
     # ── 4. Load BN and wire inputs ─────────────────────────────────────────
-    bif_path = Path(__file__).parent / "maritime_norway.bif"
+    bif_path = Path(__file__).parent / "ship_route_planning_risk.bif"
     bn = geobn.load(bif_path)
     bn.set_grid(CRS, RESOLUTION, (WEST, SOUTH, EAST, NORTH))
 

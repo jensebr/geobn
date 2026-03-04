@@ -114,9 +114,9 @@ Land pixels are NaN in all outputs.
 ## How to run
 
 ```bash
-uv run python examples/maritime_norway/run_example.py
+uv run python examples/ship_route_planning_risk/run_example.py
 ```
 
 The first run fetches EMODnet bathymetry and shipping density and saves them to
-`examples/maritime_norway/cache/`. MET Norway forecasts are fetched live on every run
+`examples/ship_route_planning_risk/cache/`. MET Norway forecasts are fetched live on every run
 (they are not cached as they change daily).
