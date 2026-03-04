@@ -60,6 +60,8 @@ class GridSpec:
             )
         width = max(1, round((xmax - xmin) / resolution))
         height = max(1, round((ymax - ymin) / resolution))
+        # Affine(x_scale, x_skew, x_origin, y_skew, y_scale, y_origin)
+        # y_scale is negative because raster rows increase downward.
         transform = Affine(resolution, 0, xmin, 0, -resolution, ymax)
         return cls(crs=crs, transform=transform, shape=(height, width))
 
@@ -130,26 +132,26 @@ def _reproject(
     col_grid, row_grid = np.meshgrid(col_idx, row_idx)
 
     # Pixel centre = corner + 0.5
-    cc = col_grid + 0.5
-    rc = row_grid + 0.5
+    col_centre = col_grid + 0.5
+    row_centre = row_grid + 0.5
 
     # Destination pixel centres in destination CRS (world coords)
-    dst_x = dst_transform.a * cc + dst_transform.b * rc + dst_transform.c
-    dst_y = dst_transform.d * cc + dst_transform.e * rc + dst_transform.f
+    dst_x = dst_transform.a * col_centre + dst_transform.b * row_centre + dst_transform.c
+    dst_y = dst_transform.d * col_centre + dst_transform.e * row_centre + dst_transform.f
 
     # Transform from destination CRS to source CRS
     if dst_crs != src_crs:
-        tr = Transformer.from_crs(dst_crs, src_crs, always_xy=True)
-        src_x, src_y = tr.transform(dst_x.ravel(), dst_y.ravel())
+        crs_transformer = Transformer.from_crs(dst_crs, src_crs, always_xy=True)
+        src_x, src_y = crs_transformer.transform(dst_x.ravel(), dst_y.ravel())
         src_x = src_x.reshape(H, W)
         src_y = src_y.reshape(H, W)
     else:
         src_x, src_y = dst_x, dst_y
 
-    # Invert the source affine to get fractional pixel-grid coordinates
-    inv = ~src_transform
-    src_col = inv.a * src_x + inv.b * src_y + inv.c
-    src_row = inv.d * src_x + inv.e * src_y + inv.f
+    # Apply the inverse source affine to convert world coords → fractional pixel indices
+    src_affine_inv = ~src_transform
+    src_col = src_affine_inv.a * src_x + src_affine_inv.b * src_y + src_affine_inv.c
+    src_row = src_affine_inv.d * src_x + src_affine_inv.e * src_y + src_affine_inv.f
 
     return _bilinear_resample(src, src_row, src_col)
 
@@ -166,37 +168,44 @@ def _bilinear_resample(
     """
     src_H, src_W = src.shape
 
-    # Shift so pixel-centre of pixel 0 maps to 0.0
-    ra = row_pix - 0.5
-    ca = col_pix - 0.5
+    # Shift so that the centre of pixel 0 maps to coordinate 0.0
+    row_centered = row_pix - 0.5
+    col_centered = col_pix - 0.5
 
-    r0 = np.floor(ra).astype(np.int32)
-    c0 = np.floor(ca).astype(np.int32)
-    r1 = r0 + 1
-    c1 = c0 + 1
+    # Integer indices of the four surrounding neighbours
+    row_lo = np.floor(row_centered).astype(np.int32)
+    col_lo = np.floor(col_centered).astype(np.int32)
+    row_hi = row_lo + 1
+    col_hi = col_lo + 1
 
-    dr = (ra - r0).astype(np.float32)
-    dc = (ca - c0).astype(np.float32)
+    # Fractional distances from the lower neighbour (0–1)
+    row_frac = (row_centered - row_lo).astype(np.float32)
+    col_frac = (col_centered - col_lo).astype(np.float32)
 
     # Pixels outside source extent → NaN
-    oob = (ra < -0.5) | (ra >= src_H - 0.5) | (ca < -0.5) | (ca >= src_W - 0.5)
-
-    # Clamp indices for safe array access (oob pixels will be overwritten)
-    r0c = np.clip(r0, 0, src_H - 1)
-    r1c = np.clip(r1, 0, src_H - 1)
-    c0c = np.clip(c0, 0, src_W - 1)
-    c1c = np.clip(c1, 0, src_W - 1)
-
-    v00 = src[r0c, c0c]
-    v01 = src[r0c, c1c]
-    v10 = src[r1c, c0c]
-    v11 = src[r1c, c1c]
-
-    result = (
-        v00 * (1 - dr) * (1 - dc)
-        + v01 * (1 - dr) * dc
-        + v10 * dr * (1 - dc)
-        + v11 * dr * dc
+    out_of_bounds = (
+        (row_centered < -0.5) | (row_centered >= src_H - 0.5) |
+        (col_centered < -0.5) | (col_centered >= src_W - 0.5)
     )
-    result[oob] = np.nan
+
+    # Clamp indices for safe array access (out-of-bounds pixels are overwritten below)
+    row_lo_safe = np.clip(row_lo, 0, src_H - 1)
+    row_hi_safe = np.clip(row_hi, 0, src_H - 1)
+    col_lo_safe = np.clip(col_lo, 0, src_W - 1)
+    col_hi_safe = np.clip(col_hi, 0, src_W - 1)
+
+    # Values at the four surrounding pixels (tl=top-left, tr=top-right, etc.)
+    val_tl = src[row_lo_safe, col_lo_safe]
+    val_tr = src[row_lo_safe, col_hi_safe]
+    val_bl = src[row_hi_safe, col_lo_safe]
+    val_br = src[row_hi_safe, col_hi_safe]
+
+    # Bilinear interpolation: weighted average of the four neighbours
+    result = (
+        val_tl * (1 - row_frac) * (1 - col_frac)
+        + val_tr * (1 - row_frac) * col_frac
+        + val_bl * row_frac       * (1 - col_frac)
+        + val_br * row_frac       * col_frac
+    )
+    result[out_of_bounds] = np.nan
     return result
