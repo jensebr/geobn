@@ -16,16 +16,7 @@ Full docs (API reference, concepts, examples) are hosted at:
 
 ## Install
 
-```bash
-pip install geobn                # core — minimal, for embedding or integration
-pip install "geobn[full]"        # full — adds GeoTIFF I/O, xarray output, interactive maps
-```
-
-For specialised data sources:
-```bash
-pip install "geobn[ocean]"       # Copernicus Marine / HubOcean (requires credentials)
-pip install "geobn[full,ocean]"  # everything
-```
+> **PyPI release coming soon.** Until then, install directly from source (see [Contributing](https://jensebr.github.io/geobn/contributing/)).
 
 Requires Python ≥ 3.13.
 
