@@ -13,3 +13,5 @@ output/
 cache/
 private/
 *.DS_Store
+CLAUDE.md
+.claude/
