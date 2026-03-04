@@ -1,6 +1,7 @@
 # geobn
 
 Bayesian network inference over geospatial data.
+Enabling probabilistic AI for geospatial risk analysis and reasoning under uncertainty, by fusing heterogeneous raster, API, and scalar data sources.
 
 `geobn` lets you wire data sources — rasters, remote APIs, or plain scalars — directly into a Bayesian network and run pixel-wise inference, producing posterior probability maps and entropy rasters.
 
