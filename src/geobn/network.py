@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import itertools
+import logging
 from pathlib import Path
 from typing import Any
+
+_log = logging.getLogger(__name__)
 
 import numpy as np
 
@@ -130,6 +133,7 @@ class GeoBayesianNetwork:
         """
         self._grid = GridSpec.from_params(crs, resolution, extent)
         self._cached_ref_grid = None
+        self._frozen_cache.clear()
         self._inference_table.clear()
         self._table_node_order = []
         self._table_query_nodes = []
@@ -234,7 +238,7 @@ class GeoBayesianNetwork:
         n_total = 1
         for k in n_states_per_node:
             n_total *= k
-        print(f"Precomputing inference table: {n_total} evidence combination(s) ...")
+        _log.info("Precomputing inference table: %d evidence combination(s) ...", n_total)
 
         for idx_combo in itertools.product(*[range(k) for k in n_states_per_node]):
             evidence = {
@@ -248,7 +252,7 @@ class GeoBayesianNetwork:
         self._inference_table = tables
         self._table_node_order = node_order
         self._table_query_nodes = list(query)
-        print(f"Precompute done.  Table shape: {next(iter(tables.values())).shape}")
+        _log.info("Precompute done.  Table shape: %s", next(iter(tables.values())).shape)
 
     # ------------------------------------------------------------------
     # Inference

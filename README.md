@@ -1,6 +1,8 @@
 # geobn
 
-> **Beta** — the API is functional and tested, but may change before a stable 1.0 release.
+[![Tests](https://github.com/jensebr/geobn/actions/workflows/tests.yml/badge.svg)](https://github.com/jensebr/geobn/actions/workflows/tests.yml)
+[![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Bayesian network inference over geospatial data.
 Enabling probabilistic AI to turn heterogeneous data sources into insight over geographical areas. The library is independent of domain, and may be used for, e.g., environmental risk assessment and risk‑informed route planning.
@@ -16,9 +18,19 @@ Full docs (API reference, concepts, examples) are hosted at:
 
 ## Install
 
-> **PyPI release coming soon.** Until then, install directly from source (see [Contributing](https://jensebr.github.io/geobn/contributing/)).
+Install directly from source (Python ≥ 3.13 required):
 
-Requires Python ≥ 3.13.
+```bash
+uv pip install git+https://github.com/jensebr/geobn.git
+```
+
+Or clone and install in editable mode:
+
+```bash
+git clone https://github.com/jensebr/geobn.git
+cd geobn
+uv pip install -e ".[full]"
+```
 
 ---
 

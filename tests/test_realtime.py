@@ -314,3 +314,28 @@ class TestPrecompute:
         assert not bn._inference_table
         assert not bn._table_node_order
         assert not bn._table_query_nodes
+
+    def test_set_grid_clears_frozen_cache(self, fire_risk_model):
+        """set_grid() after freeze() must invalidate the frozen discrete array cache.
+
+        Without this, the cached array from the old grid (wrong shape) would be
+        reused on the next infer() call, producing a shape-mismatch crash or
+        silently wrong results.
+        """
+        bn = _make_bn(fire_risk_model)
+        bn.freeze("slope")
+        bn.infer(query=["fire_risk"])  # populates _frozen_cache with (3, 3) arrays
+        assert bn._frozen_cache  # cache is populated
+
+        # Change grid to a different size
+        bn.set_grid(_CRS, 0.1, (0.0, 49.0, 0.4, 49.4))
+        assert not bn._frozen_cache  # must be cleared
+
+        # Update inputs to match the new grid size and re-run — must not crash
+        new_slope = np.tile(_SLOPE[0], (4, 4)).astype(np.float32)[:4, :4]
+        new_rain = np.tile(_RAIN[0], (4, 4)).astype(np.float32)[:4, :4]
+        t = Affine(0.1, 0, 0.0, 0, -0.1, 49.4)
+        bn.set_input("slope", ArraySource(new_slope, crs=_CRS, transform=t))
+        bn.set_input("rainfall", ArraySource(new_rain, crs=_CRS, transform=t))
+        result = bn.infer(query=["fire_risk"])
+        assert result.probabilities["fire_risk"].shape[:2] == (4, 4)
