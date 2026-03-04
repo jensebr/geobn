@@ -130,6 +130,6 @@ uv run pytest tests/ -v
 
 ---
 
-## AI use
+## Declaration of AI use
 
 Parts of this codebase were written with the assistance of Claude (Anthropic). All concepts, design decisions, and research ideas originate with the author.
