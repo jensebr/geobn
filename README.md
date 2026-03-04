@@ -18,7 +18,7 @@ Full docs (API reference, concepts, examples) are hosted at:
 
 ## Install
 
-Install directly from source (Python ≥ 3.13 required):
+> **PyPI release coming soon.** Until then, install directly from source (Python ≥ 3.13 required):
 
 ```bash
 uv pip install git+https://github.com/jensebr/geobn.git
