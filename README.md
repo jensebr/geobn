@@ -5,6 +5,9 @@ Enabling probabilistic AI to turn heterogeneous data sources into insight over g
 
 `geobn` lets you wire data sources — rasters, remote APIs, or plain scalars — directly into a Bayesian network and run pixel-wise inference, producing posterior probability maps and entropy rasters.
 
+Full docs (API reference, concepts, examples) are hosted at:
+**https://jensebr.github.io/geobn**
+
 ---
 
 ## Install
@@ -101,27 +104,9 @@ uv run python examples/maritime_norway/run_example.py
 
 ---
 
-## Documentation
-
-Full docs (API reference, concepts, examples) are hosted at:
-**https://jensebr.github.io/geobn**
-
-To read the docs locally:
-
-```bash
-uv pip install -e ".[docs]"
-mkdocs serve          # browse at http://127.0.0.1:8000
-```
-
-To build the static site:
-
-```bash
-mkdocs build --strict
-```
-
----
-
 ## Development
+
+If you want to work on `geobn` itself (rather than just use it), this is how to install it in editable mode and run the test suite locally:
 
 ```bash
 uv pip install -e ".[dev]"
