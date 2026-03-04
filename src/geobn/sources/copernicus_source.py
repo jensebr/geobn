@@ -123,7 +123,7 @@ class CopernicusMarineSource(DataSource):
 
         lon_coords = da.coords.get("longitude", da.coords.get("lon"))
         lons = lon_coords.values if lon_coords is not None else None
-        lats_vals = lat_coords.values if lat_coords is not None else None
+        lats_vals = lats if lat_coords is not None else None
 
         if lons is not None and lats_vals is not None:
             pixel_w = (lons[-1] - lons[0]) / max(len(lons) - 1, 1)

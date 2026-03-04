@@ -159,17 +159,25 @@ class BarentswatchAISSource(DataSource):
         # metric == "density": vessels per km²
         # Pixel area in km² (approximation using grid units)
         t = grid.transform
-        pixel_area_m2 = abs(t.a * t.e)  # a=dx, e=-dy in map units
-        # Convert m² → km² assuming CRS units are metres; fall back to 1 if not
+        pixel_area_units2 = abs(t.a * t.e)  # a=dx, e=-dy in map units
         try:
             from pyproj import CRS  # noqa: PLC0415
             crs_obj = CRS.from_user_input(grid.crs)
-            if crs_obj.axis_info[0].unit_name in ("metre", "meter"):
-                pixel_area_km2 = pixel_area_m2 / 1e6
+            unit = crs_obj.axis_info[0].unit_name
+            if unit in ("metre", "meter"):
+                pixel_area_km2 = pixel_area_units2 / 1e6
+            elif unit in ("degree", "degree (supplier to define representation)"):
+                # 1 degree² ≈ (111.32 km)²; approximate at mid-latitude
+                pixel_area_km2 = pixel_area_units2 * (111.32 ** 2)
             else:
-                pixel_area_km2 = pixel_area_m2  # degrees — no conversion
+                raise ValueError(
+                    f"Cannot compute vessel density for CRS with unit '{unit}'. "
+                    "Use a metric CRS (e.g. EPSG:32633) or choose metric='count'."
+                )
+        except ValueError:
+            raise
         except Exception:
-            pixel_area_km2 = pixel_area_m2
+            pixel_area_km2 = pixel_area_units2 / 1e6  # assume metres
 
         density = count / max(pixel_area_km2, 1e-12)
         return density.astype(np.float32)

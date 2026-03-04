@@ -129,6 +129,10 @@ class GeoBayesianNetwork:
             (xmin, ymin, xmax, ymax) in CRS units.
         """
         self._grid = GridSpec.from_params(crs, resolution, extent)
+        self._cached_ref_grid = None
+        self._inference_table.clear()
+        self._table_node_order = []
+        self._table_query_nodes = []
 
     # ------------------------------------------------------------------
     # Real-time optimisation
@@ -158,8 +162,6 @@ class GeoBayesianNetwork:
         if new_frozen != self._frozen_nodes:
             self._frozen_nodes = new_frozen
             self.clear_cache()
-        else:
-            self._frozen_nodes = new_frozen
 
     def clear_cache(self) -> None:
         """Invalidate all cached discrete arrays and the inference table.

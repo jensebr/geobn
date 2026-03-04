@@ -705,9 +705,9 @@ class TestEMODnetShippingDensitySource:
         with pytest.raises(ValueError, match="year"):
             EMODnetShippingDensitySource(year=2016)
 
-    def test_default_year_is_2023(self):
+    def test_default_year_is_2024(self):
         src = EMODnetShippingDensitySource()
-        assert src._year == 2023
+        assert src._year == 2024
 
     def test_requires_grid(self):
         pytest.importorskip("rasterio")

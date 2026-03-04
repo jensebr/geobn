@@ -115,7 +115,7 @@ class EMODnetShippingDensitySource(DataSource):
         ``"pleasure"``, ``"service"``, ``"dredging"``, ``"tug"``,
         ``"military"``, ``"unknown"``, ``"other"``.
     year:
-        Year of the annual average snapshot (2017–2023, default 2023).
+        Year of the annual average snapshot (2017–2025, default 2024).
     timeout:
         HTTP request timeout in seconds.
     cache_dir:
@@ -124,12 +124,12 @@ class EMODnetShippingDensitySource(DataSource):
     """
 
     _VALID_SHIP_TYPES = frozenset(_SHIPPING_LAYER_MAP)
-    _VALID_YEARS = range(2017, 2024)
+    _VALID_YEARS = range(2017, 2026)
 
     def __init__(
         self,
         ship_type: str = "all",
-        year: int = 2023,
+        year: int = 2024,
         timeout: int = 60,
         cache_dir: str | Path | None = None,
     ) -> None:

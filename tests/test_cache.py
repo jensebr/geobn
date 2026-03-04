@@ -8,7 +8,9 @@ import numpy as np
 import pytest
 from affine import Affine
 
+from geobn._types import RasterData
 from geobn.grid import GridSpec
+from geobn.sources._cache import _load_cached, _make_cache_path, _save_cached
 from geobn.sources.url_source import URLSource
 from geobn.sources.wcs_source import WCSSource
 
@@ -155,3 +157,35 @@ class TestURLSourceCache:
             data = src.fetch()
         mock_get2.assert_called_once()
         assert data.array.mean() == pytest.approx(9.0)
+
+
+class TestCacheTransformNone:
+    """_save_cached / _load_cached must handle transform=None without crashing."""
+
+    def test_save_and_load_with_transform_none(self, tmp_path):
+        data = RasterData(
+            array=np.array([[1.0, 2.0]], dtype=np.float32),
+            crs=None,
+            transform=None,
+        )
+        cache_path = _make_cache_path(tmp_path, {"key": "no-transform"})
+        _save_cached(cache_path, data)
+        loaded = _load_cached(cache_path)
+        assert loaded is not None
+        np.testing.assert_array_equal(loaded.array, data.array)
+        assert loaded.crs is None
+        assert loaded.transform is None
+
+    def test_save_and_load_with_real_transform(self, tmp_path):
+        t = Affine(0.1, 0, 5.0, 0, -0.1, 62.0)
+        data = RasterData(
+            array=np.ones((3, 3), dtype=np.float32),
+            crs="EPSG:4326",
+            transform=t,
+        )
+        cache_path = _make_cache_path(tmp_path, {"key": "with-transform"})
+        _save_cached(cache_path, data)
+        loaded = _load_cached(cache_path)
+        assert loaded is not None
+        assert loaded.transform == t
+        assert loaded.crs == "EPSG:4326"

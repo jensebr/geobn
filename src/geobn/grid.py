@@ -54,6 +54,10 @@ class GridSpec:
             (xmin, ymin, xmax, ymax) in the units of *crs*.
         """
         xmin, ymin, xmax, ymax = extent
+        if xmin >= xmax or ymin >= ymax:
+            raise ValueError(
+                f"extent must satisfy xmin < xmax and ymin < ymax, got {extent}"
+            )
         width = max(1, round((xmax - xmin) / resolution))
         height = max(1, round((ymax - ymin) / resolution))
         transform = Affine(resolution, 0, xmin, 0, -resolution, ymax)
@@ -68,8 +72,6 @@ class GridSpec:
         H, W = self.shape
         t = self.transform
         # Four corners in the source CRS
-        xs = [t.c, t.c + W * t.a + H * t.b]
-        ys = [t.f + H * t.e + W * t.d, t.f]
         corner_x = [t.c, t.c + W * t.a, t.c + H * t.b, t.c + W * t.a + H * t.b]
         corner_y = [t.f, t.f + W * t.d, t.f + H * t.e, t.f + W * t.d + H * t.e]
         transformer = Transformer.from_crs(self.crs, "EPSG:4326", always_xy=True)

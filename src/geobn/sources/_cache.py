@@ -33,7 +33,8 @@ def _load_cached(cache_path: Path) -> RasterData | None:
     try:
         array = np.load(cache_path)
         meta = json.loads(meta_path.read_text())
-        transform = Affine(*meta["transform"])
+        raw = meta["transform"]
+        transform = Affine(*raw) if raw is not None else None
         return RasterData(array=array, crs=meta["crs"], transform=transform)
     except Exception:
         return None  # corrupt → re-fetch
@@ -42,11 +43,13 @@ def _load_cached(cache_path: Path) -> RasterData | None:
 def _save_cached(cache_path: Path, data: RasterData) -> None:
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     np.save(cache_path, data.array)
+    if data.transform is not None:
+        t = data.transform
+        transform_list: list | None = [t.a, t.b, t.c, t.d, t.e, t.f]
+    else:
+        transform_list = None
     meta = {
         "crs": data.crs,
-        "transform": [
-            data.transform.a, data.transform.b, data.transform.c,
-            data.transform.d, data.transform.e, data.transform.f,
-        ],
+        "transform": transform_list,
     }
     cache_path.with_suffix(".json").write_text(json.dumps(meta))

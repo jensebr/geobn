@@ -28,6 +28,18 @@ class TestGridSpec:
         assert grid.transform.a == pytest.approx(0.1)
         assert grid.transform.e == pytest.approx(-0.1)
 
+    def test_from_params_inverted_x_raises(self):
+        with pytest.raises(ValueError, match="xmin < xmax"):
+            GridSpec.from_params("EPSG:4326", 0.1, (1.0, 49.0, 0.0, 50.0))
+
+    def test_from_params_inverted_y_raises(self):
+        with pytest.raises(ValueError, match="ymin < ymax"):
+            GridSpec.from_params("EPSG:4326", 0.1, (0.0, 50.0, 1.0, 49.0))
+
+    def test_from_params_equal_extent_raises(self):
+        with pytest.raises(ValueError):
+            GridSpec.from_params("EPSG:4326", 0.1, (0.0, 49.0, 0.0, 50.0))
+
     def test_extent_wgs84_identity(self, slope_array, reference_transform):
         """A grid in EPSG:4326 should return its own extent."""
         data = RasterData(array=slope_array, crs="EPSG:4326", transform=reference_transform)
