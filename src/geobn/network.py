@@ -88,6 +88,7 @@ class GeoBayesianNetwork:
         self._validate_node_exists(node)
         self._validate_is_root(node)
         self._inputs[node] = source
+        _log.info("Input: '%s' ← %s", node, type(source).__name__)
 
     def set_discretization(
         self,
@@ -113,6 +114,7 @@ class GeoBayesianNetwork:
         spec = DiscretizationSpec(breakpoints=list(breakpoints), labels=list(labels))
         self._validate_labels_match_bn(node, spec.labels)
         self._discretizations[node] = spec
+        _log.info("Discretization: '%s' → %d bins %s", node, len(labels), labels)
 
     def set_grid(
         self,
@@ -137,6 +139,8 @@ class GeoBayesianNetwork:
         self._inference_table.clear()
         self._table_node_order = []
         self._table_query_nodes = []
+        grid_height, grid_width = self._grid.shape
+        _log.info("Grid set: %s, resolution=%g, shape=%d×%d", crs, resolution, grid_height, grid_width)
 
     # ------------------------------------------------------------------
     # Real-time optimisation
@@ -166,6 +170,7 @@ class GeoBayesianNetwork:
         if new_frozen != self._frozen_nodes:
             self._frozen_nodes = new_frozen
             self.clear_cache()
+        _log.info("Freezing %d node(s): %s", len(node_names), list(node_names))
 
     def clear_cache(self) -> None:
         """Invalidate all cached discrete arrays and the inference table.
@@ -181,6 +186,7 @@ class GeoBayesianNetwork:
         self._inference_table.clear()
         self._table_node_order = []
         self._table_query_nodes = []
+        _log.debug("Cache cleared")
 
     def precompute(self, query: list[str]) -> None:
         """Pre-run all evidence-state combinations and store a lookup table.
@@ -308,6 +314,11 @@ class GeoBayesianNetwork:
             ref_grid = GridSpec.from_raster_data(first_data)
             pre_fetched = {first_node: first_data}
 
+        _log.info(
+            "Reference grid: %s, shape=%d×%d, resolution=%g",
+            ref_grid.crs, ref_grid.shape[0], ref_grid.shape[1], ref_grid.transform.a,
+        )
+
         # ── 2. Validate discretizations are present for all inputs ─────
         for node in self._inputs:
             if node not in self._discretizations:
@@ -327,8 +338,10 @@ class GeoBayesianNetwork:
 
             if node in self._frozen_nodes and node in self._frozen_cache:
                 # Fast path: reuse cached discrete index array
+                _log.info("Frozen cache hit: '%s'", node)
                 idx = self._frozen_cache[node]
             else:
+                _log.info("Fetching '%s' from %s", node, type(source).__name__)
                 data = (
                     pre_fetched[node]
                     if node in pre_fetched
@@ -361,6 +374,7 @@ class GeoBayesianNetwork:
             and list(self._inputs.keys()) == self._table_node_order
         ):
             # Tier-2 fast path: pure numpy table lookup, no pgmpy per call
+            _log.info("Using precomputed table (zero pgmpy calls)")
             probabilities = run_inference_from_table(
                 table=self._inference_table,
                 node_order=self._table_node_order,
@@ -383,6 +397,12 @@ class GeoBayesianNetwork:
                 nodata_mask=nodata_mask,
                 ve=self._cached_ve,
             )
+
+        n_valid = int((~nodata_mask).sum())
+        _log.info(
+            "Inference complete: %d×%d pixels, %d valid",
+            ref_grid.shape[0], ref_grid.shape[1], n_valid,
+        )
 
         return InferenceResult(
             probabilities=probabilities,
@@ -443,4 +463,5 @@ def load(path: str | Path) -> GeoBayesianNetwork:
 
     reader = BIFReader(str(Path(path)))
     model = reader.get_model()  # returns DiscreteBayesianNetwork in pgmpy >=1.0
+    _log.info("Loaded BN from '%s': %d nodes", Path(path).name, len(model.nodes()))
     return GeoBayesianNetwork(model)

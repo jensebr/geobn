@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 import time
 from datetime import date as _date
 
 import numpy as np
 import requests
+
+_log = logging.getLogger(__name__)
 from affine import Affine
 
 from .._types import RasterData
@@ -67,6 +70,11 @@ class OpenMeteoSource(DataSource):
         lon_min, lat_min, lon_max, lat_max = grid.extent_wgs84()
         n = self._sample_points
 
+        _log.info(
+            "Open-Meteo: sampling %d×%d grid (%d API calls), variable='%s', date=%s",
+            n, n, n * n, self._variable, self._date,
+        )
+
         lats = np.linspace(lat_max, lat_min, n)  # north → south (row order)
         lons = np.linspace(lon_min, lon_max, n)
         lon_grid, lat_grid = np.meshgrid(lons, lats)  # (n, n) each
@@ -79,6 +87,14 @@ class OpenMeteoSource(DataSource):
                 values[i, j] = val
                 if n > 1:
                     time.sleep(0.05)  # be polite to the free API
+
+        valid_values = values[~np.isnan(values)]
+        if valid_values.size > 0:
+            _log.info(
+                "Open-Meteo: done — values range %.2f–%.2f", valid_values.min(), valid_values.max()
+            )
+        else:
+            _log.info("Open-Meteo: done — all values are NaN")
 
         if n == 1:
             # Single-point result — return as a ConstantSource-style 1×1 array

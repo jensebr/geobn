@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import numpy as np
 import requests
+
+_log = logging.getLogger(__name__)
 
 from .._types import RasterData
 from ..grid import GridSpec
@@ -54,8 +57,10 @@ class URLSource(DataSource):
             if cached is not None:
                 return cached
 
+        _log.info("Fetching %s", self._url)
         response = requests.get(self._url, timeout=self._timeout)
         response.raise_for_status()
+        _log.info("Downloaded: %.0f KB", len(response.content) / 1024)
 
         with MemoryFile(response.content) as memfile:
             with memfile.open() as src:

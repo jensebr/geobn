@@ -20,8 +20,12 @@ dict[node, (H, W, n_states) float32]         probability per pixel per state
 """
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 from pgmpy.inference import VariableElimination
+
+_log = logging.getLogger(__name__)
 
 
 def run_inference(
@@ -89,6 +93,11 @@ def run_inference(
     # pixel_to_combo: one entry per valid pixel — the row index in unique_combos that
     #                 pixel belongs to, e.g. [0, 0, 1, 2, 0, ...]
     unique_combos, pixel_to_combo = np.unique(valid_pixel_state_matrix, axis=0, return_inverse=True)
+
+    _log.info(
+        "Inference: %d×%d grid, %d/%d valid pixels, %d unique evidence combination(s)",
+        H, W, n_valid, H * W, len(unique_combos),
+    )
 
     if ve is None:
         ve = VariableElimination(model)
@@ -165,6 +174,8 @@ def run_inference_from_table(
     NaN where *nodata_mask* is True.
     """
     H, W = nodata_mask.shape
+    n_valid = int((~nodata_mask).sum())
+    _log.info("Table lookup: %d×%d grid, %d valid pixels (fast path, no pgmpy)", H, W, n_valid)
 
     # One state-grid per evidence node, ordered to match the axes of the precomputed
     # table. Used as a combined index so numpy can read the right probabilities for

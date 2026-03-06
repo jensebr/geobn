@@ -5,9 +5,12 @@ which is used solely for coordinate transformation between CRS.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 import numpy as np
+
+_log = logging.getLogger(__name__)
 from affine import Affine
 from pyproj import Transformer
 
@@ -107,6 +110,7 @@ def align_to_grid(data: RasterData, grid: GridSpec) -> np.ndarray:
     """
     if data.crs is None:
         # ConstantSource — broadcast scalar to reference shape
+        _log.debug("Broadcasting constant %g → shape %s", float(data.array.flat[0]), grid.shape)
         return np.full(grid.shape, float(data.array.flat[0]), dtype=np.float32)
 
     src_arr = data.array.astype(np.float32)
@@ -116,8 +120,10 @@ def align_to_grid(data: RasterData, grid: GridSpec) -> np.ndarray:
         and data.transform == grid.transform
         and data.array.shape == grid.shape
     ):
+        _log.debug("Grid match — no reprojection needed")
         return src_arr
 
+    _log.info("Reprojecting %s → %s", data.crs, grid.crs)
     return _reproject(src_arr, data.crs, data.transform, grid.crs, grid.transform, grid.shape)
 
 
@@ -217,5 +223,8 @@ def _bilinear_resample(
         + val_bl * row_frac       * (1 - col_frac)
         + val_br * row_frac       * col_frac
     )
+    n_out_of_bounds = int(out_of_bounds.sum())
+    if n_out_of_bounds > 0:
+        _log.debug("%d out-of-bounds pixel(s) set to NaN", n_out_of_bounds)
     result[out_of_bounds] = np.nan
     return result

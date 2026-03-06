@@ -1,10 +1,13 @@
 """Generic OGC Web Coverage Service (WCS) source."""
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import numpy as np
 import requests
+
+_log = logging.getLogger(__name__)
 
 from .._types import RasterData
 from ..grid import GridSpec
@@ -102,12 +105,17 @@ class WCSSource(DataSource):
         else:
             params = self._build_params_v1(lon_min, lat_min, lon_max, lat_max)
 
+        _log.info(
+            "WCS fetch: %s, bbox=(%.4f, %.4f, %.4f, %.4f)",
+            self._layer, lon_min, lat_min, lon_max, lat_max,
+        )
         response = requests.get(self._url, params=params, timeout=self._timeout)
         if not response.ok:
             raise RuntimeError(
                 f"WCS request failed with HTTP {response.status_code}: "
                 f"{response.text[:200]}"
             )
+        _log.info("WCS response: %.0f KB in %.1fs", len(response.content) / 1024, response.elapsed.total_seconds())
 
         with MemoryFile(response.content) as memfile:
             with memfile.open() as src:
