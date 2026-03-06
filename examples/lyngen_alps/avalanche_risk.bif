@@ -4,7 +4,7 @@
 // Structure:
 //   slope_angle ──┐
 //                  ├──► terrain_factor ──┐
-//   aspect ────────┘                     ├──► avalanche_risk
+//   sun_exposure ────────┘                     ├──► avalanche_risk
 //   recent_snow ──┐                      │
 //                  ├──► weather_factor ──┘
 //   temperature ──┘
@@ -17,7 +17,7 @@ variable slope_angle {
   type discrete [ 4 ] { flat, gentle, steep, extreme };
 }
 
-variable aspect {
+variable sun_exposure {
   type discrete [ 2 ] { favorable, unfavorable };
 }
 
@@ -51,7 +51,7 @@ probability ( slope_angle ) {
   table 0.25, 0.25, 0.25, 0.25;
 }
 
-probability ( aspect ) {
+probability ( sun_exposure ) {
   table 0.5, 0.5;
 }
 
@@ -63,12 +63,12 @@ probability ( temperature ) {
   table 0.333, 0.333, 0.334;
 }
 
-// ── P(terrain_factor | slope_angle, aspect) ──────────────────────────────────
+// ── P(terrain_factor | slope_angle, sun_exposure) ──────────────────────────────────
 // Discretization: slope_angle ← [0, 5, 25, 40, 90]°
-//                 aspect      ← 0=south-facing (favorable), 1=north-facing (unfavorable)
+//                 sun_exposure      ← 0=south-facing (favorable), 1=north-facing (unfavorable)
 // P(low, medium, high) for each parent combination:
 
-probability ( terrain_factor | slope_angle, aspect ) {
+probability ( terrain_factor | slope_angle, sun_exposure ) {
   (flat,    favorable)    0.99, 0.009, 0.001;
   (flat,    unfavorable)  0.99, 0.009, 0.001;
   (gentle,  favorable)    0.90, 0.08,  0.02;

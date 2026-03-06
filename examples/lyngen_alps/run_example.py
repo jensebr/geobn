@@ -20,14 +20,14 @@ ConstantSource
 Derived inputs
 --------------
 ``slope_angle``  — slope in degrees computed from the DEM via numpy.gradient.
-``aspect``       — binary N-facing indicator (0 = south-facing = favorable,
+``sun_exposure``  — binary N-facing indicator (0 = south-facing = favorable,
                    1 = north-facing = unfavorable) derived from the same DEM.
 
 Bayesian network (avalanche_risk.bif)
 --------------------------------------
     slope_angle ──┐
                    ├──► terrain_factor ──┐
-    aspect ────────┘                     ├──► avalanche_risk
+    sun_exposure ──┘                     ├──► avalanche_risk
     recent_snow ──┐                      │
                    ├──► weather_factor ──┘
     temperature ──┘
@@ -173,7 +173,7 @@ def main() -> None:
         geobn.ArraySource(slope_deg, crs=CRS, transform=dtm_data.transform),
     )
     bn.set_input(
-        "aspect",
+        "sun_exposure",
         geobn.ArraySource(north_facing, crs=CRS, transform=dtm_data.transform),
     )
     bn.set_input("recent_snow", geobn.ConstantSource(RECENT_SNOW_CM))
@@ -181,7 +181,7 @@ def main() -> None:
 
     # ── 3. Discretizations ────────────────────────────────────────────────
     bn.set_discretization("slope_angle", [0, 5, 25, 40, 90], ["flat", "gentle", "steep", "extreme"])
-    bn.set_discretization("aspect",      [0.0, 0.5, 1.5],   ["favorable", "unfavorable"])
+    bn.set_discretization("sun_exposure", [0.0, 0.5, 1.5],   ["favorable", "unfavorable"])
     bn.set_discretization("recent_snow", [0, 10, 25, 150],  ["light", "moderate", "heavy"])
     bn.set_discretization("temperature", [-40, -8, -2, 15], ["cold", "moderate", "warming"])
 
