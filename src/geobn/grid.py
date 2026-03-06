@@ -71,11 +71,21 @@ class GridSpec:
 
     def extent_wgs84(self) -> tuple[float, float, float, float]:
         """Return the bounding box in WGS84 (lon_min, lat_min, lon_max, lat_max)."""
-        H, W = self.shape
-        t = self.transform
+        height, width = self.shape
+        grid_transform = self.transform
         # Four corners in the source CRS
-        corner_x = [t.c, t.c + W * t.a, t.c + H * t.b, t.c + W * t.a + H * t.b]
-        corner_y = [t.f, t.f + W * t.d, t.f + H * t.e, t.f + W * t.d + H * t.e]
+        corner_x = [
+            grid_transform.c,
+            grid_transform.c + width  * grid_transform.a,
+            grid_transform.c + height * grid_transform.b,
+            grid_transform.c + width  * grid_transform.a + height * grid_transform.b,
+        ]
+        corner_y = [
+            grid_transform.f,
+            grid_transform.f + width  * grid_transform.d,
+            grid_transform.f + height * grid_transform.e,
+            grid_transform.f + width  * grid_transform.d + height * grid_transform.e,
+        ]
         transformer = Transformer.from_crs(self.crs, "EPSG:4326", always_xy=True)
         lons, lats = transformer.transform(corner_x, corner_y)
         return float(min(lons)), float(min(lats)), float(max(lons)), float(max(lats))
@@ -124,11 +134,11 @@ def _reproject(
     dst_transform: Affine,
     dst_shape: tuple[int, int],
 ) -> np.ndarray:
-    H, W = dst_shape
+    height, width = dst_shape
 
     # Pixel-centre coordinates of every destination pixel
-    col_idx = np.arange(W, dtype=np.float64)
-    row_idx = np.arange(H, dtype=np.float64)
+    col_idx = np.arange(width, dtype=np.float64)
+    row_idx = np.arange(height, dtype=np.float64)
     col_grid, row_grid = np.meshgrid(col_idx, row_idx)
 
     # Pixel centre = corner + 0.5
@@ -143,8 +153,8 @@ def _reproject(
     if dst_crs != src_crs:
         crs_transformer = Transformer.from_crs(dst_crs, src_crs, always_xy=True)
         src_x, src_y = crs_transformer.transform(dst_x.ravel(), dst_y.ravel())
-        src_x = src_x.reshape(H, W)
-        src_y = src_y.reshape(H, W)
+        src_x = src_x.reshape(height, width)
+        src_y = src_y.reshape(height, width)
     else:
         src_x, src_y = dst_x, dst_y
 
@@ -166,7 +176,7 @@ def _bilinear_resample(
     *row_pix* and *col_pix* are in pixel-grid space where 0.5 is the centre
     of the first pixel (GDAL / affine-package convention).
     """
-    src_H, src_W = src.shape
+    src_height, src_width = src.shape
 
     # Shift so that the centre of pixel 0 maps to coordinate 0.0
     row_centered = row_pix - 0.5
@@ -184,15 +194,15 @@ def _bilinear_resample(
 
     # Pixels outside source extent → NaN
     out_of_bounds = (
-        (row_centered < -0.5) | (row_centered >= src_H - 0.5) |
-        (col_centered < -0.5) | (col_centered >= src_W - 0.5)
+        (row_centered < -0.5) | (row_centered >= src_height - 0.5) |
+        (col_centered < -0.5) | (col_centered >= src_width  - 0.5)
     )
 
     # Clamp indices for safe array access (out-of-bounds pixels are overwritten below)
-    row_lo_safe = np.clip(row_lo, 0, src_H - 1)
-    row_hi_safe = np.clip(row_hi, 0, src_H - 1)
-    col_lo_safe = np.clip(col_lo, 0, src_W - 1)
-    col_hi_safe = np.clip(col_hi, 0, src_W - 1)
+    row_lo_safe = np.clip(row_lo, 0, src_height - 1)
+    row_hi_safe = np.clip(row_hi, 0, src_height - 1)
+    col_lo_safe = np.clip(col_lo, 0, src_width  - 1)
+    col_hi_safe = np.clip(col_hi, 0, src_width  - 1)
 
     # Values at the four surrounding pixels (tl=top-left, tr=top-right, etc.)
     val_tl = src[row_lo_safe, col_lo_safe]
