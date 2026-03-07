@@ -49,3 +49,20 @@ class TestDiscretizeArray:
         arr = np.array([[5.0, 15.0, 50.0]])
         idx = discretize_array(arr, self.spec)
         np.testing.assert_array_equal(idx, [[0, 1, 2]])
+
+    def test_all_nan_returns_all_minus_one(self):
+        arr = np.full((3, 4), np.nan)
+        idx = discretize_array(arr, self.spec)
+        assert np.all(idx == -1)
+
+    def test_exact_interior_breakpoint_maps_to_upper_bin(self):
+        # Interior breakpoints are 10 and 30; value exactly at 30 → "steep" (index 2)
+        arr = np.array([[30.0]])
+        idx = discretize_array(arr, self.spec)
+        assert idx[0, 0] == 2  # "steep"
+
+    def test_just_below_interior_breakpoint_maps_to_lower_bin(self):
+        # Value just below 30 → "moderate" (index 1)
+        arr = np.array([[29.999]])
+        idx = discretize_array(arr, self.spec)
+        assert idx[0, 0] == 1  # "moderate"
