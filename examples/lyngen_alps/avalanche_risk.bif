@@ -18,7 +18,7 @@ variable slope_angle {
 }
 
 variable sun_exposure {
-  type discrete [ 2 ] { favorable, unfavorable };
+  type discrete [ 4 ] { north, east, west, south };
 }
 
 variable recent_snow {
@@ -52,7 +52,7 @@ probability ( slope_angle ) {
 }
 
 probability ( sun_exposure ) {
-  table 0.5, 0.5;
+  table 0.25, 0.25, 0.25, 0.25;
 }
 
 probability ( recent_snow ) {
@@ -65,18 +65,30 @@ probability ( temperature ) {
 
 // ── P(terrain_factor | slope_angle, sun_exposure) ──────────────────────────────────
 // Discretization: slope_angle ← [0, 5, 25, 40, 90]°
-//                 sun_exposure      ← 0=south-facing (favorable), 1=north-facing (unfavorable)
+//                 sun_exposure ← aspect quadrant; risk order: north > east > west > south
+//                   north (N-facing): shadowed, wind-loaded — highest risk
+//                   east              higher risk (morning sun only, cold nights)
+//                   west              moderate risk (afternoon sun)
+//                   south (S-facing): sun-exposed, snow consolidates — lowest risk
 // P(low, medium, high) for each parent combination:
 
 probability ( terrain_factor | slope_angle, sun_exposure ) {
-  (flat,    favorable)    0.99, 0.009, 0.001;
-  (flat,    unfavorable)  0.99, 0.009, 0.001;
-  (gentle,  favorable)    0.90, 0.08,  0.02;
-  (gentle,  unfavorable)  0.80, 0.15,  0.05;
-  (steep,   favorable)    0.25, 0.55,  0.20;
-  (steep,   unfavorable)  0.10, 0.35,  0.55;
-  (extreme, favorable)    0.20, 0.45,  0.35;
-  (extreme, unfavorable)  0.08, 0.27,  0.65;
+  (flat,    north)   0.97, 0.020, 0.010;
+  (flat,    east)    0.98, 0.015, 0.005;
+  (flat,    west)    0.98, 0.015, 0.005;
+  (flat,    south)   0.99, 0.009, 0.001;
+  (gentle,  north)   0.75, 0.18,  0.07;
+  (gentle,  east)    0.82, 0.13,  0.05;
+  (gentle,  west)    0.86, 0.11,  0.03;
+  (gentle,  south)   0.90, 0.08,  0.02;
+  (steep,   north)   0.10, 0.35,  0.55;
+  (steep,   east)    0.18, 0.45,  0.37;
+  (steep,   west)    0.22, 0.50,  0.28;
+  (steep,   south)   0.25, 0.55,  0.20;
+  (extreme, north)   0.08, 0.27,  0.65;
+  (extreme, east)    0.12, 0.35,  0.53;
+  (extreme, west)    0.16, 0.40,  0.44;
+  (extreme, south)   0.20, 0.45,  0.35;
 }
 
 // ── P(weather_factor | recent_snow, temperature) ─────────────────────────────

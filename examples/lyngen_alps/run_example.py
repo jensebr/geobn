@@ -20,8 +20,8 @@ ConstantSource
 Derived inputs
 --------------
 ``slope_angle``  — slope in degrees computed from the DEM via numpy.gradient.
-``sun_exposure``  — binary N-facing indicator (0 = south-facing = favorable,
-                   1 = north-facing = unfavorable) derived from the same DEM.
+``sun_exposure``  — aspect quadrant (0=north, 1=east, 2=west, 3=south) derived
+                   from the same DEM. Risk order: north > east > west > south.
 
 Bayesian network (avalanche_risk.bif)
 --------------------------------------
@@ -74,7 +74,7 @@ CACHE_DIR = Path(__file__).parent / "cache"  # terrain cached here after first r
 # ---------------------------------------------------------------------------
 
 def compute_slope_aspect(dem: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Return (slope_deg, north_facing) derived from a geographic-CRS DEM.
+    """Return (slope_deg, sun_exposure) derived from a geographic-CRS DEM.
 
     Parameters
     ----------
@@ -86,9 +86,13 @@ def compute_slope_aspect(dem: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     -------
     slope_deg : float32 (H, W)
         Slope in degrees (0–90). NaN where DEM is NaN.
-    north_facing : float32 (H, W)
-        1.0 where aspect is N-facing (NW–NE, compass bearing 270°–360° or
-        0°–90°); 0.0 where S-facing. NaN where DEM is NaN.
+    sun_exposure : float32 (H, W)
+        Aspect class as a numeric code mapped to the BN ``sun_exposure`` states:
+          0 = north (315°–45°)  — highest avalanche risk
+          1 = east  (45°–135°)  — second-highest risk
+          2 = west  (225°–315°) — third
+          3 = south (135°–225°) — lowest risk (most sun exposure)
+        NaN where DEM is NaN.
     """
     lat_mid = (SOUTH + NORTH) / 2.0
     m_per_deg_lat = 111_320.0
@@ -113,17 +117,24 @@ def compute_slope_aspect(dem: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     # East component = dz_dcol; north component = -dz_drow (rows↑ = south↓).
     aspect_compass = np.degrees(np.arctan2(dz_dcol, -dz_drow)) % 360.0
 
-    # North-facing: bearings 270°–360° (NW) and 0°–90° (NE) are unfavorable.
-    north_facing = (
-        (aspect_compass >= 270.0) | (aspect_compass < 90.0)
+    # Classify into 4 cardinal quadrants ordered by avalanche risk (N highest, S lowest).
+    sun_exposure = np.where(
+        (aspect_compass >= 315.0) | (aspect_compass < 45.0), 0.0,   # north
+        np.where(
+            aspect_compass < 135.0, 1.0,                             # east
+            np.where(
+                aspect_compass < 225.0, 3.0,                         # south
+                2.0,                                                  # west
+            ),
+        ),
     ).astype(np.float32)
 
     # Restore NaN mask from the original DEM.
     nodata = np.isnan(dem)
-    slope_deg[nodata]   = np.nan
-    north_facing[nodata] = np.nan
+    slope_deg[nodata]    = np.nan
+    sun_exposure[nodata] = np.nan
 
-    return slope_deg, north_facing
+    return slope_deg, sun_exposure
 
 
 # ---------------------------------------------------------------------------
@@ -153,23 +164,23 @@ def main() -> None:
         sys.exit(f"ERROR fetching DTM: {exc}")
 
     dem[dem <= 0] = np.nan   # ocean / fjord surfaces (Kartverket returns 0 for sea level)
-    slope_deg, north_facing = compute_slope_aspect(dem)
+    slope_deg, sun_exposure = compute_slope_aspect(dem)
 
     land_pixels = int(np.isfinite(dem).sum())
-    n_facing_pct = 100.0 * float(np.nanmean(north_facing))
-    print(f"Terrain     : {land_pixels:,} land pixels  (N-facing: {n_facing_pct:.1f}%)")
+    north_pct = 100.0 * float(np.nanmean(sun_exposure == 0.0))
+    print(f"Terrain     : {land_pixels:,} land pixels  (N-facing: {north_pct:.1f}%)")
     print(f"Slope range : {np.nanmin(slope_deg):.1f}° – "
           f"{np.nanmax(slope_deg):.1f}°  (mean: {np.nanmean(slope_deg):.1f}°)")
 
     # ── 3. Wire inputs ─────────────────────────────────────────────────────
     bn.set_input_array("slope_angle",  slope_deg)
-    bn.set_input_array("sun_exposure", north_facing)
+    bn.set_input_array("sun_exposure", sun_exposure)
     bn.set_input("recent_snow", geobn.ConstantSource(RECENT_SNOW_CM))
     bn.set_input("temperature",  geobn.ConstantSource(AIR_TEMP_C))
 
     # ── 4. Discretizations ────────────────────────────────────────────────
     bn.set_discretization("slope_angle", [0, 5, 25, 40, 90])
-    bn.set_discretization("sun_exposure", [0.0, 0.5, 1.5])
+    bn.set_discretization("sun_exposure", [-0.5, 0.5, 1.5, 2.5, 3.5])
     bn.set_discretization("recent_snow", [0, 10, 25, 150])
     bn.set_discretization("temperature", [-40, -8, -2, 15])
 
@@ -209,14 +220,14 @@ def main() -> None:
         print(f"  P({state:6s}) mean {p:.2f}  {bar(p)}")
 
     p_high = probs[..., 1]
-    steep_n  = (slope_deg > 35) & (north_facing == 1.0)
-    gentle_s = (slope_deg < 25) & (north_facing == 0.0)
-    p_high_steep_n  = float(np.nanmean(p_high[steep_n]))  if steep_n.any()  else float("nan")
-    p_high_gentle_s = float(np.nanmean(p_high[gentle_s])) if gentle_s.any() else float("nan")
+    steep_north  = (slope_deg > 35) & (sun_exposure == 0.0)   # north-facing
+    gentle_south = (slope_deg < 25) & (sun_exposure == 3.0)   # south-facing
+    p_high_steep_north  = float(np.nanmean(p_high[steep_north]))  if steep_north.any()  else float("nan")
+    p_high_gentle_south = float(np.nanmean(p_high[gentle_south])) if gentle_south.any() else float("nan")
 
     print("\n── Risk by terrain type ─────────────────────────────────────────")
-    print(f"  Steep N-facing slopes (>35°, N-facing)  : P(high) = {p_high_steep_n:.2f}")
-    print(f"  Gentle S-facing slopes (<25°, S-facing) : P(high) = {p_high_gentle_s:.2f}")
+    print(f"  Steep N-facing slopes (>35°, N-facing)  : P(high) = {p_high_steep_north:.2f}")
+    print(f"  Gentle S-facing slopes (<25°, S-facing) : P(high) = {p_high_gentle_south:.2f}")
 
     # ── 8. Interactive map ─────────────────────────────────────────────────
     try:
@@ -224,7 +235,7 @@ def main() -> None:
             OUT_DIR,
             extra_layers={
                 "Slope angle (°)": slope_deg,
-                "Aspect (N-facing)": north_facing,
+                "Sun exposure": sun_exposure,
             },
         )
         print(f"\nInteractive map opened in browser → {html_path}")
