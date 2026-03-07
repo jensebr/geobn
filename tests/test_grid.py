@@ -6,7 +6,7 @@ import pytest
 from affine import Affine
 
 from geobn._types import RasterData
-from geobn.grid import GridSpec, align_to_grid, _bilinear_resample
+from geobn.grid import GridSpec, align_to_grid, _bilinear_resample, _reproject
 
 
 class TestGridSpec:
@@ -76,6 +76,41 @@ class TestAlignToGrid:
         assert result.shape == (10, 10)
         # Centre of resampled grid should match centre of source grid
         assert not np.all(np.isnan(result))
+
+
+class TestReproject:
+    def test_same_crs_identity(self):
+        """Reprojecting to the same grid should return pixel-identical data."""
+        src = np.arange(9, dtype=np.float32).reshape(3, 3)
+        t = Affine(1.0, 0, 0.0, 0, -1.0, 3.0)
+        result = _reproject(src, "EPSG:4326", t, "EPSG:4326", t, (3, 3))
+        np.testing.assert_array_almost_equal(result, src)
+
+    def test_upsample_doubles_resolution(self):
+        """Upsampling a 2×2 array to 4×4 should produce a valid, finite result."""
+        src = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)
+        src_transform = Affine(1.0, 0, 0.0, 0, -1.0, 2.0)  # 1° pixels, 2×2
+        dst_transform = Affine(0.5, 0, 0.0, 0, -0.5, 2.0)  # 0.5° pixels, 4×4
+        result = _reproject(src, "EPSG:4326", src_transform, "EPSG:4326", dst_transform, (4, 4))
+        assert result.shape == (4, 4)
+        assert not np.any(np.isnan(result))
+        # Bilinear interpolation at pixel [1,1] (world centre 0.75°, 1.25°):
+        # maps to src fractional coords (0.75, 0.75) → interpolated value is 1.75
+        assert result[1, 1] == pytest.approx(1.75, abs=1e-4)
+
+    def test_cross_crs_reprojection_preserves_values(self):
+        """Reprojecting a uniform array across CRS should preserve values in overlapping pixels."""
+        # 100×100 km uniform grid in EPSG:32632 (UTM zone 32N, central meridian 9°E).
+        # Centred at easting 500000 / northing 6651444 ≈ (9°E, 60°N).
+        src = np.ones((100, 100), dtype=np.float32) * 42.0
+        src_transform = Affine(1000.0, 0, 450000.0, 0, -1000.0, 6701444.0)
+        # 5×5 destination grid in EPSG:4326 covering ~9°E, 60°N
+        dst_transform = Affine(0.01, 0, 8.97, 0, -0.01, 60.05)
+        result = _reproject(src, "EPSG:32632", src_transform, "EPSG:4326", dst_transform, (5, 5))
+        assert result.shape == (5, 5)
+        valid = result[~np.isnan(result)]
+        assert len(valid) > 0
+        np.testing.assert_allclose(valid, 42.0, atol=1e-3)
 
 
 class TestBilinearResample:

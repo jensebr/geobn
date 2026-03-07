@@ -62,6 +62,30 @@ class TestRunInference:
         assert np.all(np.isnan(probs[1, 1, :]))
         assert not np.any(np.isnan(probs[0, 0, :]))
 
+    def test_single_pixel_grid(self, fire_risk_model):
+        """1×1 grid should produce a valid (1, 1, n_states) probability array."""
+        H, W = 1, 1
+        evidence_state_grids = {
+            "slope": np.zeros((H, W), dtype=np.int16),
+            "rainfall": np.zeros((H, W), dtype=np.int16),
+        }
+        nodata_mask = np.zeros((H, W), dtype=bool)
+        result = run_inference(
+            model=fire_risk_model,
+            evidence_state_grids=evidence_state_grids,
+            evidence_state_names={
+                "slope": ["flat", "moderate", "steep"],
+                "rainfall": ["low", "medium", "high"],
+            },
+            query_nodes=["fire_risk"],
+            query_state_names={"fire_risk": ["low", "medium", "high"]},
+            nodata_mask=nodata_mask,
+        )
+        probs = result["fire_risk"]
+        assert probs.shape == (1, 1, 3)
+        assert not np.any(np.isnan(probs))
+        np.testing.assert_allclose(probs.sum(axis=-1), 1.0, atol=1e-5)
+
     def test_all_nodata_returns_nan_array(self, fire_risk_model):
         H, W = 2, 2
         evidence_state_grids = {
