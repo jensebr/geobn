@@ -106,10 +106,17 @@ class InferenceResult:
         """
         from ._viz import show_map as _show_map  # noqa: PLC0415
 
-        return _show_map(self, output_dir, filename, overlay_opacity,
-                         open_browser, extra_layers,
-                         show_probability_bands, show_category,
-                         show_entropy)
+        return _show_map(
+            result=self,
+            output_dir=output_dir,
+            filename=filename,
+            overlay_opacity=overlay_opacity,
+            open_browser=open_browser,
+            extra_layers=extra_layers,
+            show_probability_bands=show_probability_bands,
+            show_category=show_category,
+            show_entropy=show_entropy,
+        )
 
     def to_xarray(self) -> "xr.Dataset":
         """Return an xarray Dataset with spatial coordinates.
