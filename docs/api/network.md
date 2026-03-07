@@ -23,3 +23,11 @@ sources to evidence nodes, configure discretization, and call `infer()`.
         - precompute
         - clear_cache
         - infer
+
+---
+
+## Real-time optimisation
+
+For repeated inference with static terrain inputs or pre-computed state tables,
+see the dedicated [Real-time optimisation](realtime.md) guide covering
+`freeze()`, `precompute()`, and `clear_cache()`.
