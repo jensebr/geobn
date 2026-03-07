@@ -57,13 +57,11 @@ DataSources  →  align to grid  →  discretize  →  BN inference  →  Infere
 | Example | Description |
 |---|---|
 | [`examples/lyngen_alps/`](examples/lyngen_alps/) | Avalanche risk: real Kartverket DTM + configurable weather, Lyngen Alps, Norway |
-| [`examples/ship_route_planning_risk/`](examples/ship_route_planning_risk/) | Ship route planning risk: EMODnet Bathymetry + MET Norway + AIS density |
 
 Run from the repo root:
 
 ```bash
 uv run python examples/lyngen_alps/run_example.py
-uv run python examples/ship_route_planning_risk/run_example.py
 ```
 
 ---

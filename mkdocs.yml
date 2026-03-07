@@ -70,5 +70,4 @@ nav:
     - Internals: api/internals.md
   - Examples:
     - Lyngen Alps (Avalanche): examples/lyngen_alps.md
-    - Ship Route Planning Risk: examples/ship_route_planning_risk.md
   - Contributing: contributing.md
